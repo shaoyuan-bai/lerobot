@@ -66,12 +66,22 @@ class RM65DataRecorder:
         """创建 LeRobot 数据集"""
         print(f"\n正在创建数据集: {self.repo_id}")
         
-        # 从机器人获取 features
-        from lerobot.datasets.pipeline_features import create_initial_features
+        # 从机器人获取 features 并转换为数据集格式
+        from lerobot.datasets.pipeline_features import create_initial_features, aggregate_pipeline_dataset_features
+        from lerobot.processor.pipeline import DataProcessorPipeline
         
-        features = create_initial_features(
+        # 创建初始 features
+        initial_features = create_initial_features(
             observation=self.robot.observation_features,
-            action=self.robot.action_features,  # RM65 Follower使用observation作为action
+            action=self.robot.action_features,
+        )
+        
+        # 使用空的pipeline转换features
+        empty_pipeline = DataProcessorPipeline(steps=[])
+        features = aggregate_pipeline_dataset_features(
+            pipeline=empty_pipeline,
+            initial_features=initial_features,
+            use_videos=True,
         )
         
         # 创建数据集
