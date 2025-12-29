@@ -136,13 +136,12 @@ class RM65DataRecorder:
             observation = self.robot.get_observation()
             
             # RM65 Follower模式: action = observation (没有独立控制)
-            action = observation
+            action = {k: v for k, v in observation.items() if not k.startswith("images.")}
             
-            # 构建帧并添加到数据集
-            frame = build_dataset_frame(
-                observation=observation,
-                action=action,
-            )
+            # 分别构建observation和action frame
+            observation_frame = build_dataset_frame(self.dataset.features, observation, "observation")
+            action_frame = build_dataset_frame(self.dataset.features, action, "action")
+            frame = {**observation_frame, **action_frame, "task": "rm65_demo"}
             
             # 添加到数据集
             self.dataset.add_frame(frame)

@@ -152,9 +152,13 @@ def convert_dataset(input_dir: Path, repo_id: str, output_dir: Path = None, fps:
         print(f"\n转换 Episode {episode_id}...")
         metadata, states, image_files = load_episode_data(episode_dir)
         
-        # 确保数据一致
-        assert len(states) == len(image_files), \
-            f"Episode {episode_id}: states({len(states)}) != images({len(image_files)})"
+        # 确保数据一致 (如果不一致,使用较小的数据量)
+        if len(states) != len(image_files):
+            print(f"  ⚠️  Warning: Episode {episode_id} 数据不一致 - states({len(states)}) != images({len(image_files)})")
+            print(f"     使用较小的数据量: {min(len(states), len(image_files))} frames")
+            min_frames = min(len(states), len(image_files))
+            states = states[:min_frames]
+            image_files = image_files[:min_frames]
         
         # 逐帧添加
         for i, (state, img_path) in enumerate(zip(states, image_files)):
@@ -164,16 +168,15 @@ def convert_dataset(input_dir: Path, repo_id: str, output_dir: Path = None, fps:
             
             # 构建observation
             observation = convert_state_to_observation(state)
-            observation["images.top"] = torch.from_numpy(img_array)
+            observation["top"] = torch.from_numpy(img_array)  # 注意: 不是images.top
             
             # action = observation (Follower模式)
-            action = {k: v for k, v in observation.items() if not k.startswith("images.")}
+            action = {k: v for k, v in observation.items() if k != "top"}
             
-            # 构建frame
-            frame = build_dataset_frame(
-                observation=observation,
-                action=action,
-            )
+            # 分别构建observation和action frame
+            observation_frame = build_dataset_frame(dataset.features, observation, "observation")
+            action_frame = build_dataset_frame(dataset.features, action, "action")
+            frame = {**observation_frame, **action_frame, "task": "rm65_demo"}
             
             # 添加到数据集
             dataset.add_frame(frame)
