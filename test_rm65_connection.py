@@ -18,11 +18,11 @@ def test_connection():
     print("睿尔曼 RM65 双臂连接测试")
     print("=" * 60)
     
-    # 配置机器人 (请修改为你的实际 IP 地址)
+    # 配置机器人 (使用实际 IP 地址)
     config = BiRM65FollowerConfig(
         id="test_rm65",
-        left_arm_ip="192.168.1.10",   # 左臂 IP - 请修改
-        right_arm_ip="192.168.1.11",  # 右臂 IP - 请修改
+        left_arm_ip="169.254.128.20",   # 左臂 IP
+        right_arm_ip="169.254.128.21",  # 右臂 IP
         port=8080,
         move_speed=30,  # 较慢的速度用于测试
         cameras={},  # 暂不测试相机

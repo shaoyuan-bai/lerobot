@@ -17,6 +17,7 @@
 import logging
 import time
 from typing import Any
+import requests
 
 from lerobot.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
@@ -77,19 +78,35 @@ class RM65Leader(Teleoperator):
                 "睿尔曼 SDK 未安装。请运行: pip install Robotic_Arm"
             ) from e
 
-        # 创建机械臂实例
+        # 步骤1: 通过 HTTP API 初始化机械臂
+        logger.info(f"Initializing RM65 at {self.config.arm_ip}...")
+        try:
+            init_url = f"http://{self.config.arm_ip}:{self.config.port}/initialize"
+            response = requests.post(init_url, json={}, timeout=5)
+            response.raise_for_status()
+            result = response.json()
+            logger.info(f"RM65 initialization response: {result.get('message', 'OK')}")
+        except Exception as e:
+            logger.warning(f"HTTP initialization failed (will try SDK anyway): {e}")
+        
+        # 步骤2: 创建机械臂实例
         self.arm = RoboticArm()
         
-        # 连接到机械臂
+        # 步骤3: 连接到机械臂
         self.handle = self.arm.rm_create_robot_arm(self.config.arm_ip, self.config.port)
         
-        if self.handle != 0:
+        # 步骤4: 检查连接是否成功 (handle.id == -1 表示失败)
+        if self.handle.id == -1:
             raise ConnectionError(
                 f"Failed to connect to RM65 at {self.config.arm_ip}:{self.config.port}. "
-                f"Error code: {self.handle}"
+                f"请检查: 1) 机械臂是否开机 2) IP地址是否正确 3) 网络连接是否正常 4) 是否有其他程序占用连接 5) 是否需要先通过HTTP API初始化"
             )
         
-        # 配置拖动示教
+        logger.info(
+            f"Connected to RM65 at {self.config.arm_ip}:{self.config.port}, handle ID: {self.handle.id}"
+        )
+        
+        # 步骤5: 配置拖动示教
         self.configure()
         
         logger.info(f"{self} connected at {self.config.arm_ip}:{self.config.port}")

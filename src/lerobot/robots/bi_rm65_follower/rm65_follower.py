@@ -18,6 +18,7 @@ import logging
 import time
 from functools import cached_property
 from typing import Any
+import requests
 
 from lerobot.cameras.utils import make_cameras_from_configs
 from lerobot.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
@@ -89,13 +90,32 @@ class RM65Follower(Robot):
         if self.is_connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        # 连接机械臂
+        # 步骤1: 通过 HTTP API 初始化机械臂
+        logger.info(f"Initializing RM65 at {self.config.ip_address}...")
+        try:
+            init_url = f"http://{self.config.ip_address}:{self.config.port}/initialize"
+            response = requests.post(init_url, json={}, timeout=5)
+            response.raise_for_status()
+            result = response.json()
+            logger.info(f"RM65 initialization response: {result.get('message', 'OK')}")
+        except Exception as e:
+            logger.warning(f"HTTP initialization failed (will try SDK anyway): {e}")
+
+        # 步骤2: 连接机械臂
         self.handle = self.arm.rm_create_robot_arm(self.config.ip_address, self.config.port)
+        
+        # 检查连接是否成功
+        if self.handle.id == -1:
+            raise ConnectionError(
+                f"Failed to connect to RM65 at {self.config.ip_address}:{self.config.port}. "
+                f"请检查: 1) 机械臂是否开机 2) IP地址是否正确 3) 网络连接是否正常 4) 是否需要先通过HTTP API初始化"
+            )
+        
         logger.info(
             f"Connected to RM65 at {self.config.ip_address}:{self.config.port}, handle ID: {self.handle.id}"
         )
 
-        # 连接相机
+        # 步骤3: 连接相机
         for cam in self.cameras.values():
             cam.connect()
 
@@ -161,13 +181,14 @@ class RM65Follower(Robot):
         goal_angles = [action[f"{joint}.pos"] for joint in self.joint_names]
 
         # 发送关节空间运动命令 (非阻塞)
-        # rm_movej(joint_angles, speed, trajectory_connect, block)
-        # - joint_angles: 6个关节角度列表
-        # - speed: 速度 1-100
-        # - trajectory_connect: 0=不连接轨迹, 1=连接下一条轨迹
-        # - block: 0=非阻塞, 1=阻塞等待完成
+        # rm_movej(joint: list[float], v: int, r: int, connect: int, block: int)
+        # - joint: 6个关节角度列表
+        # - v: 速度 1-100
+        # - r: 轨迹过渡参数 (0-100, 0表示不过渡)
+        # - connect: 轨迹连接 0=不连接, 1=连接
+        # - block: 阻塞模式 0=非阻塞, 1=阻塞等待完成
         ret = self.arm.rm_movej(
-            goal_angles, self.config.move_speed, 0, 0  # 非阻塞模式，实时控制
+            goal_angles, self.config.move_speed, 0, 0, 0  # joint, v, r, connect, block
         )
 
         if ret != 0:

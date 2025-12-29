@@ -89,5 +89,13 @@ def make_teleoperator_from_config(config: TeleoperatorConfig) -> Teleoperator:
         from .reachy2_teleoperator import Reachy2Teleoperator
 
         return Reachy2Teleoperator(config)
+    elif config.type == "rm65_leader":
+        from .bi_rm65_leader import RM65Leader
+
+        return RM65Leader(config)
+    elif config.type == "bi_rm65_leader":
+        from .bi_rm65_leader import BiRM65Leader
+
+        return BiRM65Leader(config)
     else:
         raise ValueError(config.type)
