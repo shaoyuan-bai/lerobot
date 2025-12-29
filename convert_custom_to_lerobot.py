@@ -182,7 +182,7 @@ def convert_dataset(input_dir: Path, repo_id: str, output_dir: Path = None, fps:
             dataset.add_frame(frame)
         
         # 保存episode
-        dataset.save_episode(task="rm65_demo")
+        dataset.save_episode()
         print(f"  ✓ Episode {episode_id}: {len(states)} frames")
     
     # 停止图像写入器并合并数据

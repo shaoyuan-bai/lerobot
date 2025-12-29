@@ -164,7 +164,7 @@ class RM65DataRecorder:
         print(f"  总帧数: {num_frames}")
         
         # 保存片段
-        self.dataset.save_episode(task="rm65_demo")
+        self.dataset.save_episode()
         
         return num_frames
     
