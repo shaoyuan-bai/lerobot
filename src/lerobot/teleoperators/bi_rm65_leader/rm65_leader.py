@@ -122,7 +122,8 @@ class RM65Leader(Teleoperator):
             logger.warning(f"Failed to set drag sensitivity: error code {ret}")
         
         # 启动拖动示教模式
-        ret = self.arm.rm_start_drag_teach()
+        # 注意: rm_start_drag_teach 需要 trajectory_record 参数
+        ret = self.arm.rm_start_drag_teach(0)  # 0 表示不记录轨迹
         if ret != 0:
             raise RuntimeError(f"Failed to start drag teach mode: error code {ret}")
         
