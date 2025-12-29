@@ -18,7 +18,6 @@ import logging
 import time
 from functools import cached_property
 from typing import Any
-import requests
 
 from lerobot.cameras.utils import make_cameras_from_configs
 from lerobot.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
@@ -90,32 +89,22 @@ class RM65Follower(Robot):
         if self.is_connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        # 步骤1: 通过 HTTP API 初始化机械臂
-        logger.info(f"Initializing RM65 at {self.config.ip_address}...")
-        try:
-            init_url = f"http://{self.config.ip_address}:{self.config.port}/initialize"
-            response = requests.post(init_url, json={}, timeout=5)
-            response.raise_for_status()
-            result = response.json()
-            logger.info(f"RM65 initialization response: {result.get('message', 'OK')}")
-        except Exception as e:
-            logger.warning(f"HTTP initialization failed (will try SDK anyway): {e}")
-
-        # 步骤2: 连接机械臂
+        # 连接机械臂
         self.handle = self.arm.rm_create_robot_arm(self.config.ip_address, self.config.port)
         
-        # 检查连接是否成功
+        # 注意: 即使 handle.id == -1 (软件版本获取失败), SDK 的其他功能仍可能正常工作
         if self.handle.id == -1:
-            raise ConnectionError(
-                f"Failed to connect to RM65 at {self.config.ip_address}:{self.config.port}. "
-                f"请检查: 1) 机械臂是否开机 2) IP地址是否正确 3) 网络连接是否正常 4) 是否需要先通过HTTP API初始化"
+            logger.warning(
+                f"RM65 at {self.config.ip_address}:{self.config.port} 连接时获取软件信息失败 (handle.id=-1), "
+                f"但将继续尝试操作。如果后续操作失败,请检查: "
+                f"1) 机械臂是否开机 2) 是否按下了使能按钮 3) Web界面(http://{self.config.ip_address}:80)是否需要设置"
             )
-        
-        logger.info(
-            f"Connected to RM65 at {self.config.ip_address}:{self.config.port}, handle ID: {self.handle.id}"
-        )
+        else:
+            logger.info(
+                f"Connected to RM65 at {self.config.ip_address}:{self.config.port}, handle ID: {self.handle.id}"
+            )
 
-        # 步骤3: 连接相机
+        # 连接相机
         for cam in self.cameras.values():
             cam.connect()
 
