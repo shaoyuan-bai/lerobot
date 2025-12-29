@@ -41,10 +41,8 @@ import torch
 from PIL import Image
 from tqdm import tqdm
 
-from lerobot.robots.bi_rm65_follower import BiRM65FollowerConfig, BiRM65Follower
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import build_dataset_frame
-from lerobot.datasets.pipeline_features import create_initial_features
 
 
 def load_episode_data(episode_dir: Path):
@@ -87,46 +85,46 @@ def convert_dataset(input_dir: Path, repo_id: str, output_dir: Path = None, fps:
     
     print(f"找到 {summary['num_episodes']} 个episodes")
     
-    # 创建临时机器人配置以获取features
-    robot_config = BiRM65FollowerConfig(
-        id="rm65_temp",
-        left_arm_ip="169.254.128.20",
-        right_arm_ip="169.254.128.21",
-        port=8080,
-    )
-    
-    # 创建临时机器人实例(不连接)
+    # 直接使用hw_to_dataset_features构建features
     print("\n正在创建LeRobot数据集结构...")
-    features = create_initial_features(
-        observation={
-            "left_joint_1.pos": {"dtype": "float32", "shape": (1,)},
-            "left_joint_2.pos": {"dtype": "float32", "shape": (1,)},
-            "left_joint_3.pos": {"dtype": "float32", "shape": (1,)},
-            "left_joint_4.pos": {"dtype": "float32", "shape": (1,)},
-            "left_joint_5.pos": {"dtype": "float32", "shape": (1,)},
-            "left_joint_6.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_1.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_2.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_3.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_4.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_5.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_6.pos": {"dtype": "float32", "shape": (1,)},
-            "images.top": {"dtype": "video", "shape": (480, 640, 3)},
-        },
-        action={
-            "left_joint_1.pos": {"dtype": "float32", "shape": (1,)},
-            "left_joint_2.pos": {"dtype": "float32", "shape": (1,)},
-            "left_joint_3.pos": {"dtype": "float32", "shape": (1,)},
-            "left_joint_4.pos": {"dtype": "float32", "shape": (1,)},
-            "left_joint_5.pos": {"dtype": "float32", "shape": (1,)},
-            "left_joint_6.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_1.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_2.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_3.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_4.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_5.pos": {"dtype": "float32", "shape": (1,)},
-            "right_joint_6.pos": {"dtype": "float32", "shape": (1,)},
-        }
+    from lerobot.datasets.utils import hw_to_dataset_features, combine_feature_dicts
+    
+    # 定义机器人硬件特征
+    obs_hw_features = {
+        "left_joint_1.pos": float,
+        "left_joint_2.pos": float,
+        "left_joint_3.pos": float,
+        "left_joint_4.pos": float,
+        "left_joint_5.pos": float,
+        "left_joint_6.pos": float,
+        "right_joint_1.pos": float,
+        "right_joint_2.pos": float,
+        "right_joint_3.pos": float,
+        "right_joint_4.pos": float,
+        "right_joint_5.pos": float,
+        "right_joint_6.pos": float,
+        "top": (480, 640, 3),  # 相机图像
+    }
+    
+    action_hw_features = {
+        "left_joint_1.pos": float,
+        "left_joint_2.pos": float,
+        "left_joint_3.pos": float,
+        "left_joint_4.pos": float,
+        "left_joint_5.pos": float,
+        "left_joint_6.pos": float,
+        "right_joint_1.pos": float,
+        "right_joint_2.pos": float,
+        "right_joint_3.pos": float,
+        "right_joint_4.pos": float,
+        "right_joint_5.pos": float,
+        "right_joint_6.pos": float,
+    }
+    
+    # 转换为数据集格式
+    features = combine_feature_dicts(
+        hw_to_dataset_features(obs_hw_features, "observation", use_video=True),
+        hw_to_dataset_features(action_hw_features, "action", use_video=True),
     )
     
     # 创建LeRobot数据集
