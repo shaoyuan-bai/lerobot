@@ -35,14 +35,14 @@ echo "3. 手动拖动机械臂完成演示动作"
 echo ""
 read -p "按回车键开始录制..." dummy
 
-# 使用自定义录制脚本(因为官方record需要teleop)
+# 使用LeRobot API录制脚本
 python record_rm65_demo.py \
-  --left_arm_ip 169.254.128.20 \
-  --right_arm_ip 169.254.128.21 \
-  --output_dir ~/.cache/huggingface/lerobot/${HF_USER}/${DATASET_NAME} \
+  --repo_id ${HF_USER}/${DATASET_NAME} \
+  --root ~/.cache/huggingface/lerobot/${HF_USER}/${DATASET_NAME} \
   --num_episodes ${NUM_EPISODES} \
   --episode_duration ${EPISODE_TIME_S} \
-  --fps ${FPS}
+  --fps ${FPS} \
+  --task "${TASK}"
 
 echo ""
 echo "============================================================"
