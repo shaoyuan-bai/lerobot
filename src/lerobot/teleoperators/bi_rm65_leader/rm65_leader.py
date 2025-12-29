@@ -151,7 +151,7 @@ class RM65Leader(Teleoperator):
 
     def get_action(self) -> dict[str, float]:
         """
-        读取当前关节角度 (拖动示教模式下)
+        读取当前关节角度 (即使没有使能按钮也尝试读取)
         
         Returns:
             dict: 格式为 {"joint_1.pos": angle1, ..., "joint_6.pos": angle6}
@@ -164,18 +164,31 @@ class RM65Leader(Teleoperator):
             )
         
         # 读取当前关节角度
+        # rm_get_joint_degree 返回 (ret_code, dict) 或 dict
         joint_status = self.arm.rm_get_joint_degree()
         
-        if not isinstance(joint_status, dict) or "joint" not in joint_status:
-            logger.warning(f"Invalid joint status response: {joint_status}")
-            # 返回零角度作为fallback
+        # 处理返回值
+        if isinstance(joint_status, tuple):
+            ret_code, data = joint_status
+            if ret_code == 0 and isinstance(data, dict) and "joint" in data:
+                joint_angles = data["joint"]
+            elif isinstance(data, dict) and "joint" in data:
+                # 即使有错误码,也尝试使用返回的数据
+                logger.warning(f"Error code {ret_code} when reading joints, using returned data anyway")
+                joint_angles = data["joint"]
+            else:
+                logger.warning(f"Invalid joint status: {joint_status}")
+                return {f"{joint}.pos": 0.0 for joint in self.joint_names}
+        elif isinstance(joint_status, dict) and "joint" in joint_status:
+            joint_angles = joint_status["joint"]
+        else:
+            logger.warning(f"Unexpected joint status format: {joint_status}")
             return {f"{joint}.pos": 0.0 for joint in self.joint_names}
         
-        # 提取关节角度 (度)
-        joint_angles = joint_status["joint"]
-        
-        if len(joint_angles) != 6:
+        # 检查关节数量
+        if len(joint_angles) < 6:
             logger.warning(f"Expected 6 joints, got {len(joint_angles)}")
+            return {f"{joint}.pos": 0.0 for joint in self.joint_names}
         
         # 构建动作字典
         action = {
