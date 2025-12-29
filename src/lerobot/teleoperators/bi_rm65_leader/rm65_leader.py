@@ -112,29 +112,38 @@ class RM65Leader(Teleoperator):
         pass
 
     def configure(self) -> None:
-        """配置拖动示教模式"""
+        """
+        配置拖动示教模式(可选)
+        
+        注意: RM65 需要物理使能按钮按下才能工作
+        即使拖动示教设置失败,只要能读取关节角度即可
+        """
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected")
         
-        # 设置拖动灵敏度 (1-10, 数值越大越灵敏)
+        # 尝试设置拖动灵敏度 (可能失败,不影响后续操作)
         ret = self.arm.rm_set_drag_teach_sensitivity(self.config.drag_sensitivity)
-        if ret != 0:
+        if ret == 0:
+            logger.info(f"拖动灵敏度已设置为: {self.config.drag_sensitivity}")
+        else:
             logger.warning(
-                f"Failed to set drag sensitivity (error {ret}). "
-                f"这可能是因为机械臂未使能,但不影响后续操作"
+                f"无法设置拖动灵敏度 (错误码: {ret}), 使用默认值。"
+                f"这不影响数据采集,请确保按住使能按钮。"
             )
         
-        # 启动拖动示教模式
-        # 注意: rm_start_drag_teach 需要 trajectory_record 参数
+        # 尝试启动拖动示教模式 (可能失败,不影响后续操作)
         ret = self.arm.rm_start_drag_teach(0)  # 0 表示不记录轨迹
-        if ret != 0:
-            logger.warning(
-                f"Failed to start drag teach mode (error {ret}). "
-                f"这可能是因为: 1) 机械臂未使能 2) 需要通过Web界面设置 "
-                f"将尝试直接读取关节角度..."
-            )
+        if ret == 0:
+            logger.info("拖动示教模式已启动")
         else:
-            logger.info("拖动示教模式已启动,可以手动移动机械臂")
+            logger.warning(
+                f"无法启动拖动示教模式 (错误码: {ret})。"
+                f"这不影响数据采集,只要按住使能按钮,仍可正常读取关节角度。"
+            )
+        
+        logger.info(
+            f"RM65 Leader 已配置。请按住机械臂的使能按钮,然后手动拖动机械臂进行示教。"
+        )
 
     def setup_motors(self) -> None:
         """RM65 不需要电机设置"""
