@@ -119,15 +119,22 @@ class RM65Leader(Teleoperator):
         # 设置拖动灵敏度 (1-10, 数值越大越灵敏)
         ret = self.arm.rm_set_drag_teach_sensitivity(self.config.drag_sensitivity)
         if ret != 0:
-            logger.warning(f"Failed to set drag sensitivity: error code {ret}")
+            logger.warning(
+                f"Failed to set drag sensitivity (error {ret}). "
+                f"这可能是因为机械臂未使能,但不影响后续操作"
+            )
         
         # 启动拖动示教模式
         # 注意: rm_start_drag_teach 需要 trajectory_record 参数
         ret = self.arm.rm_start_drag_teach(0)  # 0 表示不记录轨迹
         if ret != 0:
-            raise RuntimeError(f"Failed to start drag teach mode: error code {ret}")
-        
-        logger.info("拖动示教模式已启动,可以手动移动机械臂")
+            logger.warning(
+                f"Failed to start drag teach mode (error {ret}). "
+                f"这可能是因为: 1) 机械臂未使能 2) 需要通过Web界面设置 "
+                f"将尝试直接读取关节角度..."
+            )
+        else:
+            logger.info("拖动示教模式已启动,可以手动移动机械臂")
 
     def setup_motors(self) -> None:
         """RM65 不需要电机设置"""
