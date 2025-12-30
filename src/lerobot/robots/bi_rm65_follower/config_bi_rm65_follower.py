@@ -34,6 +34,18 @@ class RM65FollowerConfig(RobotConfig):
     # 运动速度 (1-100)，默认 50
     move_speed: int = 50
 
+    # 是否启用夹爪
+    enable_gripper: bool = False
+
+    # 夹爪设备ID
+    gripper_device_id: int = 9
+
+    # 夹爪力度 (0-255)
+    gripper_force: int = 60
+
+    # 夹爪速度 (0-255)
+    gripper_speed: int = 255
+
     # 相机配置
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
 
@@ -54,6 +66,18 @@ class BiRM65FollowerConfig(RobotConfig):
 
     # 运动速度 (1-100)，默认 50
     move_speed: int = 50
+
+    # 是否启用右臂夹爪
+    enable_right_gripper: bool = False
+
+    # 夹爪设备ID
+    gripper_device_id: int = 9
+
+    # 夹爪力度 (0-255)
+    gripper_force: int = 60
+
+    # 夹爪速度 (0-255)
+    gripper_speed: int = 255
 
     # 相机配置(两臂共享)
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
