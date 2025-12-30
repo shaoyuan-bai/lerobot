@@ -24,6 +24,7 @@ from lerobot.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
 from ..robot import Robot
 from .config_bi_rm65_follower import RM65FollowerConfig
+from .epg_gripper import EPGGripperClient
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +62,30 @@ class RM65Follower(Robot):
 
         # RM65 有 6 个关节
         self.joint_names = [f"joint_{i}" for i in range(1, 7)]
+        
+        # 初始化夹爪（如果启用）
+        self.gripper: EPGGripperClient | None = None
+        if config.enable_gripper:
+            try:
+                self.gripper = EPGGripperClient(
+                    ip=config.ip_address,
+                    port=config.port,
+                    device_id=config.gripper_device_id,
+                    force=config.gripper_force,
+                    speed=config.gripper_speed,
+                )
+                logger.info("Gripper initialized for RM65")
+            except Exception as e:
+                logger.warning(f"Failed to initialize gripper: {e}. Continuing without gripper.")
+                self.gripper = None
 
     @property
     def _motors_ft(self) -> dict[str, type]:
-        return {f"{joint}.pos": float for joint in self.joint_names}
+        features = {f"{joint}.pos": float for joint in self.joint_names}
+        # 如果启用夹爪，添加夹爪位置特征
+        if self.config.enable_gripper:
+            features["gripper.pos"] = float
+        return features
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
@@ -83,7 +104,9 @@ class RM65Follower(Robot):
 
     @property
     def is_connected(self) -> bool:
-        return self.handle is not None and all(cam.is_connected for cam in self.cameras.values())
+        cameras_connected = all(cam.is_connected for cam in self.cameras.values())
+        gripper_connected = True if self.gripper is None else self.gripper.is_connected
+        return self.handle is not None and cameras_connected and gripper_connected
 
     def connect(self, calibrate: bool = True) -> None:
         if self.is_connected:
@@ -107,6 +130,15 @@ class RM65Follower(Robot):
         # 连接相机
         for cam in self.cameras.values():
             cam.connect()
+        
+        # 连接夹爪（如果启用）
+        if self.gripper is not None:
+            try:
+                self.gripper.connect()
+                logger.info("Gripper connected successfully")
+            except Exception as e:
+                logger.warning(f"Failed to connect gripper: {e}. Continuing without gripper.")
+                self.gripper = None
 
         self.configure()
 
@@ -149,6 +181,17 @@ class RM65Follower(Robot):
 
         # 构建观察字典
         obs_dict = {f"{joint}.pos": float(angle) for joint, angle in zip(self.joint_names, angles_list)}
+        
+        # 读取夹爪位置（如果启用）
+        if self.gripper is not None:
+            gripper_pos_raw = self.gripper.get_position()
+            if gripper_pos_raw is not None:
+                # 归一化: 0-255 -> 0-100
+                gripper_pos = (gripper_pos_raw / 255.0) * 100.0
+                obs_dict["gripper.pos"] = float(gripper_pos)
+            else:
+                # 如果读取失败，使用中间值
+                obs_dict["gripper.pos"] = 50.0
 
         dt_ms = (time.perf_counter() - start) * 1e3
         logger.debug(f"{self} read state: {dt_ms:.1f}ms")
@@ -182,6 +225,17 @@ class RM65Follower(Robot):
 
         if ret != 0:
             logger.warning(f"Failed to send action to RM65: error code {ret}")
+        
+        # 控制夹爪（如果启用）
+        if self.gripper is not None and "gripper.pos" in action:
+            gripper_pos_normalized = action["gripper.pos"]  # 0-100
+            # 反归一化: 0-100 -> 0-255
+            gripper_pos_raw = int((gripper_pos_normalized / 100.0) * 255.0)
+            gripper_pos_raw = max(0, min(255, gripper_pos_raw))  # 限制范围
+            
+            success = self.gripper.set_position(gripper_pos_raw)
+            if not success:
+                logger.warning("Failed to set gripper position")
 
         return action
 
@@ -193,6 +247,10 @@ class RM65Follower(Robot):
         if self.handle is not None:
             self.arm.rm_delete_robot_arm()
             self.handle = None
+        
+        # 断开夹爪（如果启用）
+        if self.gripper is not None:
+            self.gripper.disconnect()
 
         # 断开相机
         for cam in self.cameras.values():

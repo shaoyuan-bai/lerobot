@@ -50,6 +50,7 @@ class BiRM65Follower(Robot):
             ip_address=config.left_arm_ip,
             port=config.port,
             move_speed=config.move_speed,
+            enable_gripper=False,  # 左臂无夹爪
             cameras={},
         )
 
@@ -60,6 +61,10 @@ class BiRM65Follower(Robot):
             ip_address=config.right_arm_ip,
             port=config.port,
             move_speed=config.move_speed,
+            enable_gripper=config.enable_right_gripper,  # 右臂夹爪配置
+            gripper_device_id=config.gripper_device_id,
+            gripper_force=config.gripper_force,
+            gripper_speed=config.gripper_speed,
             cameras={},
         )
 
@@ -72,10 +77,15 @@ class BiRM65Follower(Robot):
 
     @property
     def _motors_ft(self) -> dict[str, type]:
-        """定义所有关节的特征 (左臂 + 右臂)"""
-        return {f"left_{motor}.pos": float for motor in self.left_arm.joint_names} | {
-            f"right_{motor}.pos": float for motor in self.right_arm.joint_names
-        }
+        """定义所有关节的特征 (左臂 + 右臂 + 右臂夹爪)"""
+        features = {f"left_{motor}.pos": float for motor in self.left_arm.joint_names}
+        features.update({f"right_{motor}.pos": float for motor in self.right_arm.joint_names})
+        
+        # 如果右臂启用夹爪，添加夹爪特征
+        if self.config.enable_right_gripper:
+            features["right_gripper.pos"] = float
+        
+        return features
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
