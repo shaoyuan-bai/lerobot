@@ -49,6 +49,10 @@ class RM65DataRecorder:
             right_arm_ip="169.254.128.21",
             port=8080,
             move_speed=30,
+            enable_right_gripper=True,  # 启用右臂夹爪
+            gripper_device_id=9,
+            gripper_force=60,
+            gripper_speed=255,
             cameras=cameras_config,
         )
         
