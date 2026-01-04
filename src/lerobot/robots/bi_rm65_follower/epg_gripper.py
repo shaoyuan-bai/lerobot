@@ -80,12 +80,14 @@ class EPGGripperClient:
             # 尝试连接
             self.client.connect((self.ip, self.port))
             logger.info(f"Socket connected to {self.ip}:{self.port}")
+            
+            # 设置连接标志（必须在_initialize之前）
+            self._is_connected = True
             time.sleep(0.5)
             
             # 初始化夹爪
             logger.info("Initializing gripper device...")
             self._initialize()
-            self._is_connected = True
             logger.info("Gripper device initialized successfully")
             
         except socket.error as e:
@@ -94,12 +96,14 @@ class EPGGripperClient:
             logger.error(f"  1. Port {self.port} already in use by RM65 SDK")
             logger.error(f"  2. Gripper device not powered on")
             logger.error(f"  3. Network connectivity issue")
+            self._is_connected = False
             if self.client:
                 self.client.close()
                 self.client = None
             raise
         except Exception as e:
             logger.error(f"Failed to initialize gripper: {e}")
+            self._is_connected = False
             if self.client:
                 self.client.close()
                 self.client = None
