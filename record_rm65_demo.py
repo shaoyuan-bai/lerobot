@@ -116,17 +116,27 @@ class RM65DataRecorder:
         
         print(f"✓ 数据集已创建: {self.dataset.root}")
     
-    def record_episode(self, episode_index, duration=20):
+    def record_episode(self, episode_index, duration=20, task_description=None):
         """
         录制一个演示片段
         
         Args:
             episode_index: 片段编号
             duration: 录制时长 (秒)
+            task_description: 任务描述文字 (例如: "pick up the red cube")
         """
         print(f"\n" + "=" * 60)
         print(f"录制片段 #{episode_index}")
         print("=" * 60)
+        
+        # 询问任务描述（如果没有提供）
+        if task_description is None:
+            task_description = input("\n请输入任务描述 (例如: pick up the pen): ").strip()
+            if not task_description:
+                task_description = f"rm65_demo_episode_{episode_index}"
+                print(f"使用默认描述: {task_description}")
+        
+        print(f"\n任务: {task_description}")
         
         # 准备阶段
         print("\n请将机械臂移动到起始位置...")
@@ -157,7 +167,7 @@ class RM65DataRecorder:
             # 分别构建observation和action frame
             observation_frame = build_dataset_frame(self.dataset.features, observation, "observation")
             action_frame = build_dataset_frame(self.dataset.features, action, "action")
-            frame = {**observation_frame, **action_frame, "task": "rm65_demo"}
+            frame = {**observation_frame, **action_frame, "task": task_description}
             
             # 添加到数据集
             self.dataset.add_frame(frame)
@@ -235,8 +245,8 @@ def main():
     parser.add_argument(
         "--task",
         type=str,
-        default="rm65_demo",
-        help="任务描述 (默认: rm65_demo)"
+        default=None,
+        help="全局任务描述（所有episode使用同一个描述），留空则每个episode单独输入"
     )
     parser.add_argument(
         "--display_data",
@@ -276,7 +286,7 @@ def main():
         
         # 录制片段
         for i in range(args.num_episodes):
-            recorder.record_episode(i, duration=args.episode_duration)
+            recorder.record_episode(i, duration=args.episode_duration, task_description=args.task)
             
             if i < args.num_episodes - 1:
                 print("\n准备录制下一个片段...")
