@@ -189,9 +189,13 @@ class RM65Follower(Robot):
                 # 归一化: 0-255 -> 0-100
                 gripper_pos = (gripper_pos_raw / 255.0) * 100.0
                 obs_dict["gripper.pos"] = float(gripper_pos)
+                logger.debug(f"Gripper position read: {gripper_pos_raw} (raw) -> {gripper_pos:.1f} (normalized)")
             else:
                 # 如果读取失败，使用中间值
                 obs_dict["gripper.pos"] = 50.0
+                logger.warning("Gripper position read failed, using fallback value 50.0")
+        else:
+            logger.debug("Gripper is None, skipping gripper position read")
 
         dt_ms = (time.perf_counter() - start) * 1e3
         logger.debug(f"{self} read state: {dt_ms:.1f}ms")

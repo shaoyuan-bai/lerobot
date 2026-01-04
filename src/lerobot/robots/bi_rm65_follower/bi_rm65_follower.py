@@ -153,6 +153,7 @@ class BiRM65Follower(Robot):
 
         # 获取右臂观察 (添加 "right_" 前缀)
         right_obs = self.right_arm.get_observation()
+        logger.debug(f"Right arm observation keys: {list(right_obs.keys())}")
         obs_dict.update({f"right_{key}": value for key, value in right_obs.items()})
 
         # 获取相机图像
@@ -162,6 +163,7 @@ class BiRM65Follower(Robot):
             dt_ms = (time.perf_counter() - start) * 1e3
             logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
 
+        logger.debug(f"Final observation keys: {list(obs_dict.keys())}")
         return obs_dict
 
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
