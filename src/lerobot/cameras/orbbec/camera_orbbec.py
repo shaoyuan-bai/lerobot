@@ -103,6 +103,41 @@ class OrbbecCamera(Camera):
         """Checks if the camera pipeline is started."""
         return self.ob_pipeline is not None
     
+    @staticmethod
+    def find_cameras() -> list[dict[str, Any]]:
+        """
+        Detects available Orbbec cameras connected to the system.
+        
+        Returns:
+            List of dictionaries containing camera information
+        """
+        if Context is None:
+            logger.warning("pyorbbecsdk not installed. Cannot find cameras.")
+            return []
+        
+        try:
+            ctx = Context()
+            device_list = ctx.query_devices()
+            
+            cameras = []
+            for i in range(device_list.get_count()):
+                device = device_list.get_device_by_index(i)
+                device_info = device.get_device_info()
+                
+                cameras.append({
+                    "index": i,
+                    "name": device_info.get_name(),
+                    "serial_number": device_info.get_serial_number(),
+                    "vendor_id": device_info.get_vid(),
+                    "product_id": device_info.get_pid(),
+                })
+            
+            return cameras
+            
+        except Exception as e:
+            logger.error(f"Error finding Orbbec cameras: {e}")
+            return []
+    
     def connect(self, warmup: bool = True):
         """
         Connects to the Orbbec camera.
