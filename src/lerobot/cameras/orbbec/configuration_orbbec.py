@@ -44,6 +44,3 @@ class OrbbecCameraConfig(CameraConfig):
     height: int = 480
     color_mode: ColorMode = ColorMode.RGB
     rotation: Cv2Rotation = Cv2Rotation.NO_ROTATION
-    
-    def __post_init__(self):
-        super().__post_init__()
