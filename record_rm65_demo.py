@@ -40,6 +40,12 @@ class RM65DataRecorder:
                 width=640,
                 height=480,
             ),
+            "wrist": OpenCVCameraConfig(
+                index_or_path=2,  # /dev/video2 - 奥比中光大白Pro RGB通道
+                fps=fps,
+                width=640,
+                height=480,
+            ),
         }
         
         # 机器人配置
