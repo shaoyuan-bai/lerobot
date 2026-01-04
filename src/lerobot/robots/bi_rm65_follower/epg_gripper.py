@@ -244,7 +244,7 @@ class EPGGripperClient:
         读取夹爪当前位置
         
         Args:
-            skip_buffer_clear: 跳过缓冲区清空（提高性能）
+            skip_buffer_clear: 跳过缓冲区清空（提高性能但可能不稳定）
         
         Returns:
             当前位置 (0-255)，失败返回 None
@@ -254,21 +254,26 @@ class EPGGripperClient:
             return None
         
         try:
-            # 可选：清空接收缓冲区（耗时操作）
+            # 可选：清空接收缓冲区
             if not skip_buffer_clear:
-                self.client.settimeout(0.01)  # 设置短超时
+                # 优化的缓冲区清空：设置非常短的超时
+                original_timeout = self.client.gettimeout()
+                self.client.settimeout(0.001)  # 1ms超时
                 try:
-                    while True:
-                        self.client.recv(1024)
-                except socket.timeout:
+                    # 最多尝试5次
+                    for _ in range(5):
+                        data = self.client.recv(1024)
+                        if not data:
+                            break
+                except (socket.timeout, BlockingIOError):
                     pass  # 缓冲区已清空
                 finally:
-                    self.client.settimeout(5.0)  # 恢复正常超时
+                    self.client.settimeout(original_timeout)
             
             # 读取寄存器1001获取当前位置
             cmd = f'{{"command":"read_holding_registers","port":1,"address":1001,"num":1,"device":{self.device_id}}}\r\n'
             self.client.send(cmd.encode('utf-8'))
-            time.sleep(0.05)  # 减少等待时间
+            time.sleep(0.05)  # 等待响应
             
             # 接收响应
             response = self.client.recv(1024).decode('utf-8').strip()
@@ -290,7 +295,7 @@ class EPGGripperClient:
                 except json.JSONDecodeError:
                     continue
             
-            logger.warning("Failed to parse gripper position from response")
+            logger.warning(f"Failed to parse gripper position from response: {response[:100]}")
             return None
             
         except Exception as e:

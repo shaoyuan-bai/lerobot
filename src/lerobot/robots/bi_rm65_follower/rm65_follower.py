@@ -63,6 +63,11 @@ class RM65Follower(Robot):
         # RM65 有 6 个关节
         self.joint_names = [f"joint_{i}" for i in range(1, 7)]
         
+        # 夹爪位置缓存（用于降低读取频率）
+        self._gripper_pos_cache: Optional[float] = None
+        self._gripper_read_counter: int = 0
+        self._gripper_read_interval: int = 3  # 每3帧读取一次夹爪
+        
         # 初始化夹爪（如果启用）
         self.gripper: EPGGripperClient | None = None
         if config.enable_gripper:
@@ -184,17 +189,35 @@ class RM65Follower(Robot):
         
         # 读取夹爪位置（如果启用）
         if self.gripper is not None:
-            # 跳过缓冲区清空，提高读取性能
-            gripper_pos_raw = self.gripper.get_position(skip_buffer_clear=True)
-            if gripper_pos_raw is not None:
-                # 归一化: 0-255 -> 0-100
-                gripper_pos = (gripper_pos_raw / 255.0) * 100.0
-                obs_dict["gripper.pos"] = float(gripper_pos)
-                logger.debug(f"Gripper position read: {gripper_pos_raw} (raw) -> {gripper_pos:.1f} (normalized)")
+            # 按频率采样：每 N 帧读取一次，其他帧使用缓存
+            self._gripper_read_counter += 1
+            
+            if self._gripper_read_counter >= self._gripper_read_interval or self._gripper_pos_cache is None:
+                # 需要读取夹爪
+                self._gripper_read_counter = 0
+                
+                # 使用清空缓冲区模式，确保数据正确
+                gripper_pos_raw = self.gripper.get_position(skip_buffer_clear=False)
+                
+                if gripper_pos_raw is not None:
+                    # 归一化: 0-255 -> 0-100
+                    gripper_pos = (gripper_pos_raw / 255.0) * 100.0
+                    self._gripper_pos_cache = float(gripper_pos)
+                    obs_dict["gripper.pos"] = self._gripper_pos_cache
+                    logger.debug(f"Gripper position read (fresh): {gripper_pos_raw} -> {gripper_pos:.1f}")
+                else:
+                    # 读取失败，使用缓存或默认值
+                    if self._gripper_pos_cache is not None:
+                        obs_dict["gripper.pos"] = self._gripper_pos_cache
+                        logger.debug("Gripper read failed, using cached value")
+                    else:
+                        obs_dict["gripper.pos"] = 50.0
+                        self._gripper_pos_cache = 50.0
+                        logger.warning("Gripper position read failed, using fallback value 50.0")
             else:
-                # 如果读取失败，使用中间值
-                obs_dict["gripper.pos"] = 50.0
-                logger.warning("Gripper position read failed, using fallback value 50.0")
+                # 使用缓存值
+                obs_dict["gripper.pos"] = self._gripper_pos_cache
+                logger.debug(f"Gripper position (cached): {self._gripper_pos_cache:.1f}")
         else:
             logger.debug("Gripper is None, skipping gripper position read")
 
