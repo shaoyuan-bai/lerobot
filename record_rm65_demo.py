@@ -23,14 +23,16 @@ from lerobot.robots.bi_rm65_follower import BiRM65FollowerConfig, BiRM65Follower
 from lerobot.cameras.opencv import OpenCVCameraConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import build_dataset_frame
+from lerobot.utils.visualization_utils import _init_rerun, log_rerun_data
 
 
 class RM65DataRecorder:
     """使用 LeRobot 官方 API 的 RM65 数据录制器"""
     
-    def __init__(self, repo_id, root=None, fps=30):
+    def __init__(self, repo_id, root=None, fps=30, display_data: bool = False):
         self.repo_id = repo_id
         self.fps = fps
+        self.display_data = display_data
         
         # 相机配置
         cameras_config = {
@@ -148,6 +150,10 @@ class RM65DataRecorder:
             # RM65 Follower模式: action = observation (没有独立控制)
             action = {k: v for k, v in observation.items() if not k.startswith("images.")}
             
+            # 实时可视化: 将观测和动作发送到 Rerun
+            if self.display_data:
+                log_rerun_data(observation=observation, action=action)
+            
             # 分别构建observation和action frame
             observation_frame = build_dataset_frame(self.dataset.features, observation, "observation")
             action_frame = build_dataset_frame(self.dataset.features, action, "action")
@@ -232,6 +238,11 @@ def main():
         default="rm65_demo",
         help="任务描述 (默认: rm65_demo)"
     )
+    parser.add_argument(
+        "--display_data",
+        action="store_true",
+        help="在录制时通过 Rerun 实时显示相机画面和电机曲线",
+    )
     
     args = parser.parse_args()
     
@@ -242,12 +253,18 @@ def main():
     print(f"片段数量: {args.num_episodes}")
     print(f"每段时长: {args.episode_duration}s")
     print(f"采样频率: {args.fps} Hz")
+    print(f"实时可视化: {'开启' if args.display_data else '关闭'}")
+    
+    # 如需实时可视化，初始化 Rerun
+    if args.display_data:
+        _init_rerun(session_name="rm65_record")
     
     # 创建录制器
     recorder = RM65DataRecorder(
         repo_id=args.repo_id,
         root=args.root,
         fps=args.fps,
+        display_data=args.display_data,
     )
     
     try:
