@@ -259,9 +259,8 @@ def main():
                 print("\n准备录制下一个片段...")
                 input("按回车继续,或 Ctrl+C 退出...")
         
-        # 合并数据集
-        print("\n正在合并数据集...")
-        recorder.dataset.consolidate()
+        # LeRobot v3.0 不需要 consolidate(),数据已在 save_episode() 中保存
+        print("\n✓ 数据集已保存")
         
         print("\n" + "=" * 60)
         print(f"🎉 录制完成! 共 {args.num_episodes} 个片段")
