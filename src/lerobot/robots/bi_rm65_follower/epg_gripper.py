@@ -186,16 +186,49 @@ class EPGGripperClient:
             return None
         
         try:
+            # 清空接收缓冲区，避免读到历史响应
+            self.client.setblocking(False)
+            try:
+                while True:
+                    self.client.recv(1024)
+            except BlockingIOError:
+                pass  # 缓冲区已清空
+            finally:
+                self.client.setblocking(True)
+            
             # 读取寄存器1001获取当前位置
             cmd = f'{{"command":"read_holding_registers","port":1,"address":1001,"num":1,"device":{self.device_id}}}\r\n'
             self.client.send(cmd.encode('utf-8'))
+            time.sleep(0.1)  # 等待响应
             
             # 接收响应
-            response = self.client.recv(1024).decode('utf-8')
-            # TODO: 解析响应获取位置值
-            # 暂时返回中间位置作为占位
-            logger.warning("Position reading not fully implemented, returning placeholder")
-            return 127
+            response = self.client.recv(1024).decode('utf-8').strip()
+            
+            # 解析JSON响应
+            # 响应格式: {"command":"read_holding_registers","data":25855}
+            # data是16位数值，高字节=位置，低字节=速度
+            import json
+            for line in response.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                try:
+                    data = json.loads(line)
+                    if data.get('command') == 'read_holding_registers' and 'data' in data:
+                        # 提取16位数据
+                        combined_value = data['data']
+                        # 高字节 = 位置 (0-255)
+                        position = (combined_value >> 8) & 0xFF
+                        # 低字节 = 速度 (0-255)
+                        speed = combined_value & 0xFF
+                        logger.debug(f"Gripper position: {position}, speed: {speed}")
+                        return position
+                except json.JSONDecodeError:
+                    continue
+            
+            logger.warning("Failed to parse gripper position from response")
+            return None
             
         except Exception as e:
             logger.error(f"Failed to read gripper position: {e}")
