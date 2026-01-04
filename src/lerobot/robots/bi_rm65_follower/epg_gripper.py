@@ -132,35 +132,81 @@ class EPGGripperClient:
             return False
     
     def _initialize(self) -> None:
-        """初始化夹爪设备"""
+        """初始化夹爪设备（不使能，保持自由活动）"""
         logger.info("Initializing gripper...")
         
         # 1. 设置工具电压为24V
         cmd = '{"command":"set_tool_voltage","voltage_type":3}\r\n'
         self._send_command(cmd)
-        time.sleep(0.5)
+        time.sleep(0.3)
         
         # 2. 配置Modbus模式
         cmd = '{"command":"set_modbus_mode","port":1,"baudrate":115200,"timeout":2}\r\n'
         self._send_command(cmd)
-        time.sleep(0.5)
+        time.sleep(0.3)
         
-        # 3. 去使能（复位）
+        # 3. 去使能（让夹爪可以自由活动）
         cmd = f'{{"command":"write_registers","port":1,"address":1000,"num":1,"data":[0,0],"device":{self.device_id}}}\r\n'
         self._send_command(cmd)
-        time.sleep(0.5)
+        time.sleep(0.3)
         
-        # 4. 上使能
-        cmd = f'{{"command":"write_registers","port":1,"address":1000,"num":1,"data":[0,1],"device":{self.device_id}}}\r\n'
-        self._send_command(cmd)
-        time.sleep(0.5)
+        logger.info("Gripper initialized in free-move mode (disabled, can be moved manually)")
+    
+    def enable(self, force: Optional[int] = None, speed: Optional[int] = None) -> bool:
+        """
+        使能夹爪（进入力控模式）
         
-        # 5. 设置默认力度和速度
-        cmd = f'{{"command":"write_registers","port":1,"address":1002,"num":1,"data":[{self.force},{self.speed}],"device":{self.device_id}}}\r\n'
-        self._send_command(cmd)
-        time.sleep(0.5)
+        Args:
+            force: 力度 (0-255), 默认使用初始化时的值
+            speed: 速度 (0-255), 默认使用初始化时的值
         
-        logger.info("Gripper initialized successfully")
+        Returns:
+            是否使能成功
+        """
+        if not self.is_connected:
+            logger.error("Gripper not connected")
+            return False
+        
+        force = force if force is not None else self.force
+        speed = speed if speed is not None else self.speed
+        
+        try:
+            # 1. 设置力度和速度
+            cmd = f'{{"command":"write_registers","port":1,"address":1002,"num":1,"data":[{force},{speed}],"device":{self.device_id}}}\r\n'
+            self._send_command(cmd)
+            time.sleep(0.1)
+            
+            # 2. 上使能
+            cmd = f'{{"command":"write_registers","port":1,"address":1000,"num":1,"data":[0,1],"device":{self.device_id}}}\r\n'
+            self._send_command(cmd)
+            time.sleep(0.1)
+            
+            logger.info(f"Gripper enabled with force={force}, speed={speed}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to enable gripper: {e}")
+            return False
+    
+    def disable(self) -> bool:
+        """
+        去使能夹爪（让夹爪可以自由活动）
+        
+        Returns:
+            是否去使能成功
+        """
+        if not self.is_connected:
+            logger.error("Gripper not connected")
+            return False
+        
+        try:
+            cmd = f'{{"command":"write_registers","port":1,"address":1000,"num":1,"data":[0,0],"device":{self.device_id}}}\r\n'
+            self._send_command(cmd)
+            time.sleep(0.1)
+            logger.info("Gripper disabled (free-move mode)")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to disable gripper: {e}")
+            return False
     
     def set_position(self, position: int) -> bool:
         """
@@ -193,9 +239,12 @@ class EPGGripperClient:
             logger.error(f"Failed to set gripper position: {e}")
             return False
     
-    def get_position(self) -> Optional[int]:
+    def get_position(self, skip_buffer_clear: bool = False) -> Optional[int]:
         """
         读取夹爪当前位置
+        
+        Args:
+            skip_buffer_clear: 跳过缓冲区清空（提高性能）
         
         Returns:
             当前位置 (0-255)，失败返回 None
@@ -205,27 +254,26 @@ class EPGGripperClient:
             return None
         
         try:
-            # 清空接收缓冲区，避免读到历史响应
-            self.client.setblocking(False)
-            try:
-                while True:
-                    self.client.recv(1024)
-            except BlockingIOError:
-                pass  # 缓冲区已清空
-            finally:
-                self.client.setblocking(True)
+            # 可选：清空接收缓冲区（耗时操作）
+            if not skip_buffer_clear:
+                self.client.settimeout(0.01)  # 设置短超时
+                try:
+                    while True:
+                        self.client.recv(1024)
+                except socket.timeout:
+                    pass  # 缓冲区已清空
+                finally:
+                    self.client.settimeout(5.0)  # 恢复正常超时
             
             # 读取寄存器1001获取当前位置
             cmd = f'{{"command":"read_holding_registers","port":1,"address":1001,"num":1,"device":{self.device_id}}}\r\n'
             self.client.send(cmd.encode('utf-8'))
-            time.sleep(0.1)  # 等待响应
+            time.sleep(0.05)  # 减少等待时间
             
             # 接收响应
             response = self.client.recv(1024).decode('utf-8').strip()
             
             # 解析JSON响应
-            # 响应格式: {"command":"read_holding_registers","data":25855}
-            # data是16位数值，高字节=位置，低字节=速度
             import json
             for line in response.split('\n'):
                 line = line.strip()
@@ -235,13 +283,9 @@ class EPGGripperClient:
                 try:
                     data = json.loads(line)
                     if data.get('command') == 'read_holding_registers' and 'data' in data:
-                        # 提取16位数据
                         combined_value = data['data']
-                        # 高字节 = 位置 (0-255)
                         position = (combined_value >> 8) & 0xFF
-                        # 低字节 = 速度 (0-255)
-                        speed = combined_value & 0xFF
-                        logger.debug(f"Gripper position: {position}, speed: {speed}")
+                        logger.debug(f"Gripper position: {position}")
                         return position
                 except json.JSONDecodeError:
                     continue

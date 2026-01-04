@@ -184,7 +184,8 @@ class RM65Follower(Robot):
         
         # 读取夹爪位置（如果启用）
         if self.gripper is not None:
-            gripper_pos_raw = self.gripper.get_position()
+            # 跳过缓冲区清空，提高读取性能
+            gripper_pos_raw = self.gripper.get_position(skip_buffer_clear=True)
             if gripper_pos_raw is not None:
                 # 归一化: 0-255 -> 0-100
                 gripper_pos = (gripper_pos_raw / 255.0) * 100.0
