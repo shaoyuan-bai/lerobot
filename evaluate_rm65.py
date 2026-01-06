@@ -220,7 +220,8 @@ def main():
         # 清理资源
         logging.info("正在断开机器人连接...")
         robot.disconnect()
-        listener.stop()
+        if listener is not None:
+            listener.stop()
         log_say("推理完成", play_sounds=True)
 
 
