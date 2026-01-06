@@ -150,6 +150,12 @@ def main():
         pretrained_path=args.policy_path,
         preprocessor_overrides={"device_processor": {"device": str(policy.config.device)}},
     )
+    
+    # DEBUG: 打印 preprocessor 的结构
+    logging.info(f"Preprocessor type: {type(preprocessor)}")
+    logging.info(f"Preprocessor: {preprocessor}")
+    if hasattr(preprocessor, 'steps'):
+        logging.info(f"Preprocessor steps: {preprocessor.steps}")
 
     # 创建机器人动作处理器
     robot_action_processor = make_default_robot_action_processor()
@@ -224,6 +230,13 @@ def main():
 
                 # 处理观测并推理动作
                 with torch.inference_mode():
+                    # 最后一次检查 transition 结构
+                    if frame_count == 0:
+                        logging.info(f"Before preprocessor - transition type: {type(transition)}")
+                        logging.info(f"Before preprocessor - has OBSERVATION key: {TransitionKey.OBSERVATION in transition}")
+                        obs_check = transition.get(TransitionKey.OBSERVATION)
+                        logging.info(f"Before preprocessor - observation value: {obs_check is not None and isinstance(obs_check, dict)}")
+                    
                     processed_transition = preprocessor(transition)
                     # 转回 batch 格式以获取 observation
                     processed_batch = transition_to_batch(processed_transition)
