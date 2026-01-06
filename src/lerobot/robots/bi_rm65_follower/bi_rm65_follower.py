@@ -175,6 +175,11 @@ class BiRM65Follower(Robot):
         right_action = {
             key.removeprefix("right_"): value for key, value in action.items() if key.startswith("right_")
         }
+        
+        # DEBUG: 打印动作分离结果
+        logger.debug(f"Original action keys: {list(action.keys())}")
+        logger.debug(f"Left action keys: {list(left_action.keys())}")
+        logger.debug(f"Right action keys: {list(right_action.keys())}")
 
         # 并行发送到两个机械臂
         send_action_left = self.left_arm.send_action(left_action)

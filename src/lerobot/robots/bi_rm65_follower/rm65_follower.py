@@ -239,6 +239,9 @@ class RM65Follower(Robot):
 
         # 提取目标关节角度 (度)
         goal_angles = [action[f"{joint}.pos"] for joint in self.joint_names]
+        
+        # DEBUG: 打印动作信息
+        logger.debug(f"{self.config.id} sending action: {goal_angles}")
 
         # 发送关节空间运动命令 (非阻塞)
         # rm_movej(joint: list[float], v: int, r: int, connect: int, block: int)

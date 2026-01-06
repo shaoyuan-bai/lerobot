@@ -112,6 +112,9 @@ def parse_args():
 def main():
     args = parse_args()
     init_logging()
+    
+    # 启用 DEBUG 级别日志
+    logging.getLogger("lerobot.robots").setLevel(logging.DEBUG)
 
     # 创建相机配置
     camera_config = {
@@ -307,7 +310,12 @@ def main():
                     
                     # 夹爪动作 (如果不是 0)
                     if len(action_array) > 12 and action_array[12] != 0:
-                        robot_action['gripper.pos'] = float(action_array[12])
+                        robot_action['right_gripper.pos'] = float(action_array[12])
+                    
+                    # DEBUG: 打印动作字典
+                    if frame_count == 0:
+                        logging.info(f"Sending action with keys: {list(robot_action.keys())}")
+                        logging.info(f"Action values (first 3): left=[{action_array[0]:.2f}, {action_array[1]:.2f}, {action_array[2]:.2f}], right=[{action_array[6]:.2f}, {action_array[7]:.2f}, {action_array[8]:.2f}]")
                     
                 elif isinstance(processed_action, dict):
                     # 如果是 dict，移除每个值的 batch 维度
