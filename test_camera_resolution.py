@@ -72,10 +72,12 @@ def list_camera_formats(camera_index: int):
         logger.warning("⚠️  未检测到任何支持的分辨率")
 
 
-def test_resolution(camera_index: int, width: int, height: int, duration: int = 5):
+def test_resolution(camera_index: int, width: int, height: int, duration: int = 5, use_mjpeg: bool = False):
     """测试指定分辨率并显示实时画面"""
     logger.info(f"\n{'='*60}")
     logger.info(f"测试摄像头 {camera_index} 在 {width}x{height} 分辨率下的表现")
+    if use_mjpeg:
+        logger.info(f"📹 使用 MJPEG 压缩模式")
     logger.info(f"{'='*60}\n")
     
     cap = cv2.VideoCapture(camera_index)
@@ -86,6 +88,11 @@ def test_resolution(camera_index: int, width: int, height: int, duration: int = 
     # 设置分辨率
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    
+    # 如果指定使用 MJPEG，设置编码格式
+    if use_mjpeg:
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        logger.info("📹 已设置 MJPEG 编码")
     
     actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -103,7 +110,7 @@ def test_resolution(camera_index: int, width: int, height: int, duration: int = 
             return
     
     logger.info(f"\n🎥 开始录制 {duration} 秒...")
-    logger.info("💡 提示: 将显示实时画面，按 'q' 键提前退出\n")
+    logger.info("💡 提示: headless 环境无法显示画面，但会统计 FPS\n")
     
     frame_count = 0
     import time
@@ -118,23 +125,17 @@ def test_resolution(camera_index: int, width: int, height: int, duration: int = 
         frame_count += 1
         elapsed = time.time() - start_time
         
-        # 添加信息到画面
-        cv2.putText(frame, f"Resolution: {actual_width}x{actual_height}", 
-                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(frame, f"FPS: {frame_count / elapsed:.1f}", 
-                    (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(frame, f"Time: {elapsed:.1f}s / {duration}s", 
-                    (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        # 不显示画面（headless 环境），只统计 FPS
+        # 每秒打印一次进度
+        if frame_count % 30 == 0 or elapsed >= duration:
+            logger.info(f"⏱️  {elapsed:.1f}s / {duration}s - FPS: {frame_count / elapsed:.1f}")
         
-        # 显示画面
-        cv2.imshow(f"Camera {camera_index} Test", frame)
-        
-        # 检查是否按下 'q' 键或时间到
-        if cv2.waitKey(1) & 0xFF == ord('q') or elapsed >= duration:
+        # 检查是否时间到
+        if elapsed >= duration:
             break
     
     cap.release()
-    cv2.destroyAllWindows()
+    # cv2.destroyAllWindows()  # headless 环境不需要
     
     actual_fps = frame_count / elapsed
     logger.info(f"\n✅ 测试完成!")
@@ -151,11 +152,12 @@ def main():
     parser.add_argument("--test-resolution", type=int, nargs=2, metavar=("WIDTH", "HEIGHT"),
                         help="测试指定分辨率 (例如: --test-resolution 1920 1080)")
     parser.add_argument("--duration", type=int, default=5, help="测试时长（秒，默认: 5）")
+    parser.add_argument("--mjpeg", action="store_true", help="使用 MJPEG 压缩格式（提高帧率）")
     args = parser.parse_args()
     
     if args.test_resolution:
         width, height = args.test_resolution
-        test_resolution(args.camera_index, width, height, args.duration)
+        test_resolution(args.camera_index, width, height, args.duration, args.mjpeg)
     else:
         list_camera_formats(args.camera_index)
         
