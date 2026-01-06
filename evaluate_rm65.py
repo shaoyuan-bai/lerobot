@@ -254,23 +254,9 @@ def main():
                         logging.info(f"After copy - observation value: {test_copy.get(TransitionKey.OBSERVATION) is not None}")
                     
                     try:
-                        # 手动测试每个 processor step
-                        if frame_count == 0:
-                            logging.info("Testing each processor step manually...")
-                            test_trans = transition.copy()
-                            for i, step in enumerate(preprocessor.steps):
-                                logging.info(f"Step {i}: {step.__class__.__name__}")
-                                logging.info(f"  Before: has OBSERVATION = {TransitionKey.OBSERVATION in test_trans}")
-                                try:
-                                    test_trans = step(test_trans)
-                                    logging.info(f"  After: has OBSERVATION = {TransitionKey.OBSERVATION in test_trans}")
-                                except Exception as e:
-                                    logging.error(f"  Failed at step {i}: {e}")
-                                    logging.error(f"  Transition keys: {list(test_trans.keys())}")
-                                    logging.error(f"  OBSERVATION value: {test_trans.get(TransitionKey.OBSERVATION)}")
-                                    raise
-                        
-                        processed_transition = preprocessor(transition)
+                        # 直接调用 _forward 而不是 __call__，因为 __call__ 会先调用 to_transition
+                        # 而我们已经有了 transition 格式的数据
+                        processed_transition = preprocessor._forward(transition)
                     except ValueError as e:
                         logging.error(f"Preprocessor failed: {e}")
                         logging.error(f"Transition keys at error: {list(transition.keys())}")
