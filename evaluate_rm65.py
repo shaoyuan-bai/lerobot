@@ -216,12 +216,13 @@ def main():
                 observation['observation.state'] = torch.from_numpy(state)  # (13,)
                 
                 # 图像需要从 (H, W, C) 转为 (C, H, W)，并添加 "observation." 前缀
+                # 同时转换为 float32 并归一化到 [0, 1] 以匹配训练时的格式
                 for robot_key, obs_key in [('top', 'observation.images.top'), ('wrist', 'observation.images.wrist')]:
                     img = robot_obs[robot_key]  # (480, 640, 3) uint8
                     if isinstance(img, np.ndarray):
                         img = torch.from_numpy(img)
-                    # 转换为 (C, H, W)
-                    img = img.permute(2, 0, 1)  # (3, 480, 640)
+                    # 转换为 (C, H, W) 并转为 float32，范围 [0, 1]
+                    img = img.permute(2, 0, 1).float() / 255.0  # (3, 480, 640) float32 in [0, 1]
                     observation[obs_key] = img
 
                 # DEBUG: 打印 observation 键
