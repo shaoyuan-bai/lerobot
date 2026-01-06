@@ -250,13 +250,8 @@ class RM65Follower(Robot):
         # - r: 轨迹过渡参数 (0-100, 0表示不过渡)
         # - connect: 轨迹连接 0=不连接, 1=连接
         # - block: 阻塞模式 0=非阻塞, 1=阻塞等待完成
-        # 
-        # 推理时使用:
-        # - r=30: 中等轨迹平滑度，避免抖动
-        # - connect=1: 启用轨迹连接，保证平滑过渡
-        # - block=0: 非阻塞，允许高频率发送命令
         ret = self.arm.rm_movej(
-            goal_angles, self.config.move_speed, 30, 1, 0  # joint, v, r=30, connect=1, block=0
+            goal_angles, self.config.move_speed, 0, 0, 0  # joint, v, r, connect, block
         )
 
         if ret != 0:
