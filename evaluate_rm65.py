@@ -248,8 +248,18 @@ def main():
                         logging.info(f"Before preprocessor - has OBSERVATION key: {TransitionKey.OBSERVATION in transition}")
                         obs_check = transition.get(TransitionKey.OBSERVATION)
                         logging.info(f"Before preprocessor - observation value: {obs_check is not None and isinstance(obs_check, dict)}")
+                        # 测试 copy() 行为
+                        test_copy = transition.copy()
+                        logging.info(f"After copy - has OBSERVATION key: {TransitionKey.OBSERVATION in test_copy}")
+                        logging.info(f"After copy - observation value: {test_copy.get(TransitionKey.OBSERVATION) is not None}")
                     
-                    processed_transition = preprocessor(transition)
+                    try:
+                        processed_transition = preprocessor(transition)
+                    except ValueError as e:
+                        logging.error(f"Preprocessor failed: {e}")
+                        logging.error(f"Transition keys at error: {list(transition.keys())}")
+                        logging.error(f"Transition[OBSERVATION]: {transition.get(TransitionKey.OBSERVATION)}")
+                        raise
                     # 转回 batch 格式以获取 observation
                     processed_batch = transition_to_batch(processed_transition)
                     action = policy.select_action(processed_batch)
