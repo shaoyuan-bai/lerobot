@@ -85,18 +85,6 @@ def parse_args():
         help="右臂 IP 地址",
     )
     parser.add_argument(
-        "--top-camera",
-        type=int,
-        default=0,
-        help="俯视相机索引（v4l2 设备号）",
-    )
-    parser.add_argument(
-        "--wrist-camera",
-        type=int,
-        default=2,
-        help="腕部相机索引（v4l2 设备号）",
-    )
-    parser.add_argument(
         "--no-display",
         action="store_true",
         help="禁用 Rerun 可视化",
@@ -116,16 +104,16 @@ def main():
     # 启用 DEBUG 级别日志
     logging.getLogger("lerobot.robots").setLevel(logging.DEBUG)
 
-    # 创建相机配置
+    # 创建相机配置（使用设备路径避免索引变化）
     camera_config = {
         "top": OpenCVCameraConfig(
-            index_or_path=args.top_camera,
+            index_or_path="/dev/video0",  # 固定使用 video0
             width=640,
             height=480,
             fps=args.fps,
         ),
         "wrist": OpenCVCameraConfig(
-            index_or_path=args.wrist_camera,
+            index_or_path="/dev/video2",  # 固定使用 video2
             width=640,
             height=480,
             fps=args.fps,
@@ -144,19 +132,22 @@ def main():
     logging.info("正在初始化 RM65 机器人...")
     robot = BiRM65Follower(robot_config)
 
-    # 加载训练好的策略
+    # 加载训练好的策略，确保使用 GPU
     logging.info(f"正在加载策略: {args.policy_path}")
     from lerobot.policies.act.modeling_act import ACTPolicy
     
-    # 直接使用 from_pretrained 加载模型
-    policy = ACTPolicy.from_pretrained(args.policy_path)
-    policy.eval()
+    # 确定设备（不依赖 policy.config.device）
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    logging.info(f"🚀 Using device: {device}")
+    
+    # 加载模型并移到指定设备
+    policy = ACTPolicy.from_pretrained(args.policy_path).to(device).eval()
 
-    # 创建预处理和后处理器
+    # 创建预处理和后处理器（使用确定的设备）
     preprocessor, postprocessor = make_pre_post_processors(
         policy_cfg=policy.config,
         pretrained_path=args.policy_path,
-        preprocessor_overrides={"device_processor": {"device": str(policy.config.device)}},
+        preprocessor_overrides={"device_processor": {"device": str(device)}},
     )
     
     # DEBUG: 打印 preprocessor 的结构
@@ -198,7 +189,9 @@ def main():
                 loop_start = time.perf_counter()
 
                 # 获取机器人观测
+                t0 = time.perf_counter()
                 robot_obs = robot.get_observation()
+                t1 = time.perf_counter()
                 
                 # DEBUG: 打印观测数据结构
                 if frame_count == 0:
@@ -265,7 +258,7 @@ def main():
                     try:
                         # 直接调用 _forward 而不是 __call__，因为 __call__ 会先调用 to_transition
                         # 而我们已经有了 transition 格式的数据
-                        processed_transition = preprocessor._forward(transition)
+                        processed_transition = preprocessor(transition)
                     except ValueError as e:
                         logging.error(f"Preprocessor failed: {e}")
                         logging.error(f"Transition keys at error: {list(transition.keys())}")
@@ -287,6 +280,8 @@ def main():
                     
                     action = policy.select_action(processed_batch)
                     processed_action = postprocessor(action)
+                
+                t2 = time.perf_counter()
 
                 # 转换为机器人动作格式
                 # processed_action 可能是 Tensor 或 dict
@@ -330,17 +325,25 @@ def main():
 
                 # 发送动作到机器人
                 robot.send_action(robot_action)
+                t3 = time.perf_counter()
 
-                # 帧率控制
+                # 帧率控制（修正负等待卡顿）
                 frame_count += 1
                 elapsed = time.perf_counter() - loop_start
                 
-                # 每 50 帧打印一次推理时间
+                # 每 50 帧打印一次分段计时
                 if frame_count % 50 == 0:
-                    inference_time_ms = elapsed * 1000
-                    logging.info(f"帧 {frame_count}: 推理时间 {inference_time_ms:.1f}ms, 目标FPS {args.fps}")
+                    logging.info(
+                        f"帧 {frame_count}: obs={((t1-t0)*1000):.1f}ms, "
+                        f"infer={((t2-t1)*1000):.1f}ms, "
+                        f"act={((t3-t2)*1000):.1f}ms, "
+                        f"total={((t3-t0)*1000):.1f}ms (目标: {(1000/args.fps):.1f}ms)"
+                    )
                 
-                busy_wait(1 / args.fps - elapsed)
+                # 避免"负等待"造成的卡顿
+                dt = (1.0 / args.fps) - elapsed
+                if dt > 0:
+                    busy_wait(dt)
 
                 # 检查是否需要提前退出
                 if events.get("stop_recording", False):
