@@ -262,8 +262,20 @@ def main():
                         logging.error(f"Transition keys at error: {list(transition.keys())}")
                         logging.error(f"Transition[OBSERVATION]: {transition.get(TransitionKey.OBSERVATION)}")
                         raise
+                    
+                    # DEBUG: 打印处理后的 observation 键
+                    if frame_count == 0:
+                        processed_obs = processed_transition.get(TransitionKey.OBSERVATION)
+                        if processed_obs:
+                            logging.info(f"After preprocessor - observation keys: {list(processed_obs.keys())}")
+                    
                     # 转回 batch 格式以获取 observation
                     processed_batch = transition_to_batch(processed_transition)
+                    
+                    # DEBUG: 打印 batch 键
+                    if frame_count == 0:
+                        logging.info(f"After transition_to_batch - batch keys: {list(processed_batch.keys())}")
+                    
                     action = policy.select_action(processed_batch)
                     processed_action = postprocessor(action)
 
