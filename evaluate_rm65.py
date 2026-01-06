@@ -33,7 +33,7 @@ import time
 import torch
 
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
-from lerobot.policies.factory import make_policy, make_pre_post_processors
+from lerobot.policies.factory import make_pre_post_processors
 from lerobot.processor import make_default_robot_action_processor
 from lerobot.robots.bi_rm65_follower.config_bi_rm65_follower import BiRM65FollowerConfig
 from lerobot.robots.bi_rm65_follower.bi_rm65_follower import BiRM65Follower
@@ -135,10 +135,10 @@ def main():
 
     # 加载训练好的策略
     logging.info(f"正在加载策略: {args.policy_path}")
-    policy = make_policy(
-        cfg=None,
-        pretrained_path=args.policy_path,
-    )
+    from lerobot.policies.act.modeling_act import ACTPolicy
+    
+    # 直接使用 from_pretrained 加载模型
+    policy = ACTPolicy.from_pretrained(args.policy_path)
     policy.eval()
 
     # 创建预处理和后处理器
