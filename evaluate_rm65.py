@@ -72,13 +72,13 @@ def parse_args():
     parser.add_argument(
         "--left-arm-ip",
         type=str,
-        default="192.168.1.18",
+        default="169.254.128.20",
         help="左臂 IP 地址",
     )
     parser.add_argument(
         "--right-arm-ip",
         type=str,
-        default="192.168.1.19",
+        default="169.254.128.21",
         help="右臂 IP 地址",
     )
     parser.add_argument(
