@@ -214,7 +214,10 @@ def main():
                 
                 # DEBUG: 打印 transition 结构
                 if frame_count == 0:
+                    logging.info(f"Transition keys: {list(transition.keys())}")
                     obs_in_transition = transition.get('observation')
+                    logging.info(f"Observation is None: {obs_in_transition is None}")
+                    logging.info(f"Observation is dict: {isinstance(obs_in_transition, dict)}")
                     if obs_in_transition:
                         logging.info(f"Transition observation keys: {list(obs_in_transition.keys())}")
 
