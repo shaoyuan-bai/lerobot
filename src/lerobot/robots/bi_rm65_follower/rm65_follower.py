@@ -273,6 +273,19 @@ class RM65Follower(Robot):
     def disconnect(self):
         if not self.is_connected:
             return
+        
+        # 在断开前停止机械臂运动
+        # 获取当前位置并发送为目标位置，清空运动队列
+        try:
+            ret, current_state = self.arm.rm_get_current_arm_state()
+            if ret == 0 and current_state is not None:
+                current_angles = current_state["joint"]
+                logger.info(f"{self.config.id} stopping motion at current position: {current_angles}")
+                # 使用阻塞模式发送当前位置，确保机械臂停止
+                self.arm.rm_movej(current_angles, 20, 0, 0, 1)  # block=1 阻塞等待完成
+                logger.info(f"{self.config.id} motion stopped")
+        except Exception as e:
+            logger.warning(f"Failed to stop {self.config.id} motion: {e}")
 
         # 断开机械臂连接
         if self.handle is not None:
