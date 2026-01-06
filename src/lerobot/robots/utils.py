@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 # Copyright 2024 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,110 +13,67 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Utility functions for robot instantiation."""
 
-import logging
-from pprint import pformat
+from typing import TYPE_CHECKING
 
-from lerobot.robots import RobotConfig
+if TYPE_CHECKING:
+    from lerobot.robots.config import RobotConfig
+    from lerobot.robots.robot import Robot
 
-from .robot import Robot
 
-
-def make_robot_from_config(config: RobotConfig) -> Robot:
-    if config.type == "koch_follower":
-        from .koch_follower import KochFollower
-
-        return KochFollower(config)
-    elif config.type == "so100_follower":
-        from .so100_follower import SO100Follower
-
-        return SO100Follower(config)
-    elif config.type == "so101_follower":
-        from .so101_follower import SO101Follower
-
-        return SO101Follower(config)
-    elif config.type == "lekiwi":
-        from .lekiwi import LeKiwi
-
-        return LeKiwi(config)
-    elif config.type == "stretch3":
-        from .stretch3 import Stretch3Robot
-
-        return Stretch3Robot(config)
-    elif config.type == "viperx":
-        from .viperx import ViperX
-
-        return ViperX(config)
-    elif config.type == "hope_jr_hand":
-        from .hope_jr import HopeJrHand
-
-        return HopeJrHand(config)
-    elif config.type == "hope_jr_arm":
-        from .hope_jr import HopeJrArm
-
-        return HopeJrArm(config)
-    elif config.type == "bi_so100_follower":
-        from .bi_so100_follower import BiSO100Follower
-
-        return BiSO100Follower(config)
-    elif config.type == "bi_so101_follower":
-        from .bi_so101_follower import BiSO101Follower
-
-        return BiSO101Follower(config)
-    elif "xlerobot" == config.type:
-        from .xlerobot import XLerobot
-
-        return XLerobot(config)
-    elif config.type == "reachy2":
-        from .reachy2 import Reachy2Robot
-
-        return Reachy2Robot(config)
-    elif config.type == "bi_rm65_follower":
-        from .bi_rm65_follower import BiRM65Follower
-
-        return BiRM65Follower(config)
-    elif config.type == "mock_robot":
-        from tests.mocks.mock_robot import MockRobot
-
-        return MockRobot(config)
+def make_robot_from_config(robot_config: "RobotConfig") -> "Robot":
+    """
+    Factory function to instantiate a Robot from a RobotConfig.
+    
+    Args:
+        robot_config: Configuration object for the robot.
+        
+    Returns:
+        An instantiated Robot object.
+    """
+    robot_type = robot_config.robot_type
+    
+    if robot_type == "so100_follower":
+        from lerobot.robots.so100_follower import SO100Follower
+        return SO100Follower(robot_config)
+    elif robot_type == "so101_follower":
+        from lerobot.robots.so101_follower import SO101Follower
+        return SO101Follower(robot_config)
+    elif robot_type == "bi_so100_follower":
+        from lerobot.robots.bi_so100_follower import BiSO100Follower
+        return BiSO100Follower(robot_config)
+    elif robot_type == "bi_so101_follower":
+        from lerobot.robots.bi_so101_follower import BiSO101Follower
+        return BiSO101Follower(robot_config)
+    elif robot_type == "bi_rm65_follower":
+        from lerobot.robots.bi_rm65_follower import BiRM65Follower
+        return BiRM65Follower(robot_config)
+    elif robot_type == "koch_follower":
+        from lerobot.robots.koch_follower import KochFollower
+        return KochFollower(robot_config)
+    elif robot_type == "lekiwi":
+        from lerobot.robots.lekiwi import Lekiwi
+        return Lekiwi(robot_config)
+    elif robot_type == "hope_jr":
+        from lerobot.robots.hope_jr import HopeJR
+        return HopeJR(robot_config)
+    elif robot_type == "reachy2":
+        from lerobot.robots.reachy2 import Reachy2
+        return Reachy2(robot_config)
+    elif robot_type == "stretch3":
+        from lerobot.robots.stretch3 import Stretch3
+        return Stretch3(robot_config)
+    elif robot_type == "viperx":
+        from lerobot.robots.viperx import ViperX
+        return ViperX(robot_config)
+    elif robot_type == "omni_base":
+        from lerobot.robots.omni_base import OmniBase
+        return OmniBase(robot_config)
     else:
-        raise ValueError(config.type)
-
-
-# TODO(pepijn): Move to pipeline step to make sure we don't have to do this in the robot code and send action to robot is clean for use in dataset
-def ensure_safe_goal_position(
-    goal_present_pos: dict[str, tuple[float, float]], max_relative_target: float | dict[str, float]
-) -> dict[str, float]:
-    """Caps relative action target magnitude for safety."""
-
-    if isinstance(max_relative_target, float):
-        diff_cap = dict.fromkeys(goal_present_pos, max_relative_target)
-    elif isinstance(max_relative_target, dict):
-        if not set(goal_present_pos) == set(max_relative_target):
-            raise ValueError("max_relative_target keys must match those of goal_present_pos.")
-        diff_cap = max_relative_target
-    else:
-        raise TypeError(max_relative_target)
-
-    warnings_dict = {}
-    safe_goal_positions = {}
-    for key, (goal_pos, present_pos) in goal_present_pos.items():
-        diff = goal_pos - present_pos
-        max_diff = diff_cap[key]
-        safe_diff = min(diff, max_diff)
-        safe_diff = max(safe_diff, -max_diff)
-        safe_goal_pos = present_pos + safe_diff
-        safe_goal_positions[key] = safe_goal_pos
-        if abs(safe_goal_pos - goal_pos) > 1e-4:
-            warnings_dict[key] = {
-                "original goal_pos": goal_pos,
-                "safe goal_pos": safe_goal_pos,
-            }
-
-    if warnings_dict:
-        logging.warning(
-            "Relative goal position magnitude had to be clamped to be safe.\n"
-            f"{pformat(warnings_dict, indent=4)}"
+        raise ValueError(
+            f"Unknown robot type '{robot_type}'. Available types: "
+            "so100_follower, so101_follower, bi_so100_follower, bi_so101_follower, "
+            "bi_rm65_follower, koch_follower, lekiwi, hope_jr, reachy2, stretch3, "
+            "viperx, omni_base"
         )
-
-    return safe_goal_positions
