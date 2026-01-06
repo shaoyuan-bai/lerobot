@@ -254,6 +254,22 @@ def main():
                         logging.info(f"After copy - observation value: {test_copy.get(TransitionKey.OBSERVATION) is not None}")
                     
                     try:
+                        # 手动测试每个 processor step
+                        if frame_count == 0:
+                            logging.info("Testing each processor step manually...")
+                            test_trans = transition.copy()
+                            for i, step in enumerate(preprocessor.steps):
+                                logging.info(f"Step {i}: {step.__class__.__name__}")
+                                logging.info(f"  Before: has OBSERVATION = {TransitionKey.OBSERVATION in test_trans}")
+                                try:
+                                    test_trans = step(test_trans)
+                                    logging.info(f"  After: has OBSERVATION = {TransitionKey.OBSERVATION in test_trans}")
+                                except Exception as e:
+                                    logging.error(f"  Failed at step {i}: {e}")
+                                    logging.error(f"  Transition keys: {list(test_trans.keys())}")
+                                    logging.error(f"  OBSERVATION value: {test_trans.get(TransitionKey.OBSERVATION)}")
+                                    raise
+                        
                         processed_transition = preprocessor(transition)
                     except ValueError as e:
                         logging.error(f"Preprocessor failed: {e}")
