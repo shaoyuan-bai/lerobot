@@ -199,7 +199,7 @@ def main():
                         if isinstance(value, (torch.Tensor, np.ndarray)):
                             logging.info(f"  {key}: shape={getattr(value, 'shape', 'N/A')}, dtype={getattr(value, 'dtype', type(value))}")
                 
-                # 转换为策略期望的格式
+                # 转换为策略期望的格式（不添加 batch 维度，让 preprocessor 处理）
                 # 1. 合并关节位置为 state 向量 (13维: 12个关节 + 1个夹爪，但夹爪总是0)
                 joint_keys = [
                     'left_joint_1.pos', 'left_joint_2.pos', 'left_joint_3.pos',
@@ -211,19 +211,18 @@ def main():
                 state_values.append(0.0)  # 夹爪值，总是0
                 state = np.array(state_values, dtype=np.float32)
                 
-                # 2. 重命名和转换图像
+                # 2. 重命名和转换图像（不添加 batch 维度）
                 observation = {}
-                observation['observation.state'] = torch.from_numpy(state).unsqueeze(0)  # (1, 13)
+                observation['observation.state'] = torch.from_numpy(state)  # (13,)
                 
-                # 图像需要从 (H, W, C) 转为 (C, H, W) 并添加 batch 维度
+                # 图像需要从 (H, W, C) 转为 (C, H, W)
                 for robot_key, policy_key in [('top', 'observation.images.top'), ('wrist', 'observation.images.wrist')]:
                     img = robot_obs[robot_key]  # (480, 640, 3) uint8
                     if isinstance(img, np.ndarray):
                         img = torch.from_numpy(img)
                     # 转换为 (C, H, W)
                     img = img.permute(2, 0, 1)  # (3, 480, 640)
-                    # 添加 batch 维度
-                    observation[policy_key] = img.unsqueeze(0)  # (1, 3, 480, 640)
+                    observation[policy_key] = img  # 不添加 batch 维度
 
                 # DEBUG: 打印 observation 键
                 if frame_count == 0:
