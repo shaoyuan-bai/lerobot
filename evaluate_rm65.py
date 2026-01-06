@@ -37,6 +37,7 @@ from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.policies.factory import make_pre_post_processors
 from lerobot.processor import make_default_robot_action_processor
 from lerobot.processor.converters import observation_to_transition, transition_to_batch
+from lerobot.processor.core import TransitionKey
 from lerobot.robots.bi_rm65_follower.config_bi_rm65_follower import BiRM65FollowerConfig
 from lerobot.robots.bi_rm65_follower.bi_rm65_follower import BiRM65Follower
 from lerobot.utils.control_utils import init_keyboard_listener
@@ -215,7 +216,7 @@ def main():
                 # DEBUG: 打印 transition 结构
                 if frame_count == 0:
                     logging.info(f"Transition keys: {list(transition.keys())}")
-                    obs_in_transition = transition.get('observation')
+                    obs_in_transition = transition.get(TransitionKey.OBSERVATION)
                     logging.info(f"Observation is None: {obs_in_transition is None}")
                     logging.info(f"Observation is dict: {isinstance(obs_in_transition, dict)}")
                     if obs_in_transition:
