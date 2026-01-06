@@ -213,16 +213,16 @@ def main():
                 
                 # 2. 重命名和转换图像（不添加 batch 维度）
                 observation = {}
-                observation['observation.state'] = torch.from_numpy(state)  # (13,)
+                observation['state'] = torch.from_numpy(state)  # (13,) - 注意：不包含 "observation." 前缀
                 
                 # 图像需要从 (H, W, C) 转为 (C, H, W)
-                for robot_key, policy_key in [('top', 'observation.images.top'), ('wrist', 'observation.images.wrist')]:
+                for robot_key, obs_key in [('top', 'images.top'), ('wrist', 'images.wrist')]:
                     img = robot_obs[robot_key]  # (480, 640, 3) uint8
                     if isinstance(img, np.ndarray):
                         img = torch.from_numpy(img)
                     # 转换为 (C, H, W)
                     img = img.permute(2, 0, 1)  # (3, 480, 640)
-                    observation[policy_key] = img  # 不添加 batch 维度
+                    observation[obs_key] = img  # 键名如 "images.top"
 
                 # DEBUG: 打印 observation 键
                 if frame_count == 0:
