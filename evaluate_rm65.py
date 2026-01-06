@@ -30,6 +30,7 @@ import argparse
 import logging
 import time
 
+import numpy as np
 import torch
 
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
@@ -182,15 +183,35 @@ def main():
 
                 # 获取机器人观测
                 robot_obs = robot.get_observation()
+                
+                # 转换为 policy 格式（添加 batch 维度）
+                # 将所有观测数据转换为 tensor 并添加 batch 维度
+                observation = {}
+                for key, value in robot_obs.items():
+                    if isinstance(value, torch.Tensor):
+                        # 已经是 tensor，添加 batch 维度
+                        observation[key] = value.unsqueeze(0)
+                    elif isinstance(value, np.ndarray):
+                        # numpy 数组，转 tensor 并添加 batch 维度
+                        observation[key] = torch.from_numpy(value).unsqueeze(0)
+                    else:
+                        # 标量值，转 tensor
+                        observation[key] = torch.tensor([value])
 
                 # 处理观测并推理动作
                 with torch.inference_mode():
-                    processed_obs = preprocessor(robot_obs)
+                    processed_obs = preprocessor(observation)
                     action = policy.select_action(processed_obs)
                     processed_action = postprocessor(action)
 
-                # 转换为机器人动作格式
-                robot_action = robot_action_processor((processed_action, robot_obs))
+                # 转换为机器人动作格式（移除 batch 维度）
+                robot_action = {}
+                for key, value in processed_action.items():
+                    if isinstance(value, torch.Tensor):
+                        # 移除 batch 维度并转 numpy
+                        robot_action[key] = value.squeeze(0).cpu().numpy()
+                    else:
+                        robot_action[key] = value
 
                 # 发送动作到机器人
                 robot.send_action(robot_action)
