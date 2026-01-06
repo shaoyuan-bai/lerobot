@@ -36,7 +36,7 @@ import torch
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.policies.factory import make_pre_post_processors
 from lerobot.processor import make_default_robot_action_processor
-from lerobot.processor.converters import batch_to_transition, transition_to_batch
+from lerobot.processor.converters import observation_to_transition, transition_to_batch
 from lerobot.robots.bi_rm65_follower.config_bi_rm65_follower import BiRM65FollowerConfig
 from lerobot.robots.bi_rm65_follower.bi_rm65_follower import BiRM65Follower
 from lerobot.utils.control_utils import init_keyboard_listener
@@ -192,32 +192,31 @@ def main():
                         if isinstance(value, (torch.Tensor, np.ndarray)):
                             logging.info(f"  {key}: shape={getattr(value, 'shape', 'N/A')}, dtype={getattr(value, 'dtype', type(value))}")
                 
-                # 转换为 batch 格式（添加 "observation." 前缀和 batch 维度）
-                batch = {}
+                # 转换为 tensor 格式并添加 batch 维度
+                observation = {}
                 for key, value in robot_obs.items():
-                    # 添加 observation. 前缀
-                    batch_key = f"observation.{key}"
-                    
                     if isinstance(value, torch.Tensor):
                         # 已经是 tensor，添加 batch 维度
-                        batch[batch_key] = value.unsqueeze(0)
+                        observation[key] = value.unsqueeze(0)
                     elif isinstance(value, np.ndarray):
                         # numpy 数组，转 tensor 并添加 batch 维度
-                        batch[batch_key] = torch.from_numpy(value).unsqueeze(0)
+                        observation[key] = torch.from_numpy(value).unsqueeze(0)
                     else:
                         # 标量值，转 tensor
-                        batch[batch_key] = torch.tensor([value])
+                        observation[key] = torch.tensor([value])
 
-                # DEBUG: 打印 batch 键
+                # DEBUG: 打印 observation 键
                 if frame_count == 0:
-                    logging.info(f"Batch keys: {list(batch.keys())}")
+                    logging.info(f"Observation keys (with batch): {list(observation.keys())}")
 
                 # 转换为 transition 格式
-                transition = batch_to_transition(batch)
+                transition = observation_to_transition(observation)
                 
                 # DEBUG: 打印 transition 结构
                 if frame_count == 0:
-                    logging.info(f"Transition observation: {transition.get('observation')}")
+                    obs_in_transition = transition.get('observation')
+                    if obs_in_transition:
+                        logging.info(f"Transition observation keys: {list(obs_in_transition.keys())}")
 
                 # 处理观测并推理动作
                 with torch.inference_mode():
