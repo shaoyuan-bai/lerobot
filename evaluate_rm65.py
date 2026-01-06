@@ -185,6 +185,13 @@ def main():
                 # 获取机器人观测
                 robot_obs = robot.get_observation()
                 
+                # DEBUG: 打印观测数据结构
+                if frame_count == 0:
+                    logging.info(f"Robot observation keys: {list(robot_obs.keys())}")
+                    for key, value in robot_obs.items():
+                        if isinstance(value, (torch.Tensor, np.ndarray)):
+                            logging.info(f"  {key}: shape={getattr(value, 'shape', 'N/A')}, dtype={getattr(value, 'dtype', type(value))}")
+                
                 # 转换为 batch 格式（添加 "observation." 前缀和 batch 维度）
                 batch = {}
                 for key, value in robot_obs.items():
@@ -201,8 +208,16 @@ def main():
                         # 标量值，转 tensor
                         batch[batch_key] = torch.tensor([value])
 
+                # DEBUG: 打印 batch 键
+                if frame_count == 0:
+                    logging.info(f"Batch keys: {list(batch.keys())}")
+
                 # 转换为 transition 格式
                 transition = batch_to_transition(batch)
+                
+                # DEBUG: 打印 transition 结构
+                if frame_count == 0:
+                    logging.info(f"Transition observation: {transition.get('observation')}")
 
                 # 处理观测并推理动作
                 with torch.inference_mode():
