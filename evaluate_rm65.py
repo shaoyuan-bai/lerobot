@@ -280,14 +280,25 @@ def main():
                     action = policy.select_action(processed_batch)
                     processed_action = postprocessor(action)
 
-                # 转换为机器人动作格式（移除 batch 维度）
-                robot_action = {}
-                for key, value in processed_action.items():
-                    if isinstance(value, torch.Tensor):
-                        # 移除 batch 维度并转 numpy
-                        robot_action[key] = value.squeeze(0).cpu().numpy()
-                    else:
-                        robot_action[key] = value
+                # 转换为机器人动作格式
+                # processed_action 可能是 Tensor 或 dict
+                if isinstance(processed_action, torch.Tensor):
+                    # 如果是 Tensor，移除 batch 维度并转 numpy
+                    action_array = processed_action.squeeze(0).cpu().numpy()
+                    # RM65 期望的动作格式：分别为左右臂的关节角度
+                    robot_action = {
+                        'action': action_array  # (13,) array
+                    }
+                elif isinstance(processed_action, dict):
+                    # 如果是 dict，移除每个值的 batch 维度
+                    robot_action = {}
+                    for key, value in processed_action.items():
+                        if isinstance(value, torch.Tensor):
+                            robot_action[key] = value.squeeze(0).cpu().numpy()
+                        else:
+                            robot_action[key] = value
+                else:
+                    raise ValueError(f"Unexpected processed_action type: {type(processed_action)}")
 
                 # 发送动作到机器人
                 robot.send_action(robot_action)
