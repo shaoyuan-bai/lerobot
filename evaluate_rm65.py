@@ -284,11 +284,26 @@ def main():
                 # processed_action 可能是 Tensor 或 dict
                 if isinstance(processed_action, torch.Tensor):
                     # 如果是 Tensor，移除 batch 维度并转 numpy
-                    action_array = processed_action.squeeze(0).cpu().numpy()
-                    # RM65 期望的动作格式：分别为左右臂的关节角度
-                    robot_action = {
-                        'action': action_array  # (13,) array
-                    }
+                    action_array = processed_action.squeeze(0).cpu().numpy()  # (13,)
+                    
+                    # RM65 双臂机器人期望的动作格式：
+                    # - 前 6 个值：左臂关节角度 (joint_1 到 joint_6)
+                    # - 接下来 6 个值：右臂关节角度 (joint_1 到 joint_6)
+                    # - 最后 1 个值：夹爪位置
+                    robot_action = {}
+                    
+                    # 左臂动作 (joint_1 到 joint_6)
+                    for i in range(6):
+                        robot_action[f'left_joint_{i+1}.pos'] = float(action_array[i])
+                    
+                    # 右臂动作 (joint_1 到 joint_6)
+                    for i in range(6):
+                        robot_action[f'right_joint_{i+1}.pos'] = float(action_array[i+6])
+                    
+                    # 夹爪动作 (如果不是 0)
+                    if len(action_array) > 12 and action_array[12] != 0:
+                        robot_action['gripper.pos'] = float(action_array[12])
+                    
                 elif isinstance(processed_action, dict):
                     # 如果是 dict，移除每个值的 batch 维度
                     robot_action = {}
