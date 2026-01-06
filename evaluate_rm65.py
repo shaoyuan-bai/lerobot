@@ -36,6 +36,7 @@ import torch
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.policies.factory import make_pre_post_processors
 from lerobot.processor import make_default_robot_action_processor
+from lerobot.processor.converters import batch_to_transition, transition_to_batch
 from lerobot.robots.bi_rm65_follower.config_bi_rm65_follower import BiRM65FollowerConfig
 from lerobot.robots.bi_rm65_follower.bi_rm65_follower import BiRM65Follower
 from lerobot.utils.control_utils import init_keyboard_listener
@@ -184,24 +185,31 @@ def main():
                 # 获取机器人观测
                 robot_obs = robot.get_observation()
                 
-                # 转换为 policy 格式（添加 batch 维度）
-                # 将所有观测数据转换为 tensor 并添加 batch 维度
-                observation = {}
+                # 转换为 batch 格式（添加 "observation." 前缀和 batch 维度）
+                batch = {}
                 for key, value in robot_obs.items():
+                    # 添加 observation. 前缀
+                    batch_key = f"observation.{key}"
+                    
                     if isinstance(value, torch.Tensor):
                         # 已经是 tensor，添加 batch 维度
-                        observation[key] = value.unsqueeze(0)
+                        batch[batch_key] = value.unsqueeze(0)
                     elif isinstance(value, np.ndarray):
                         # numpy 数组，转 tensor 并添加 batch 维度
-                        observation[key] = torch.from_numpy(value).unsqueeze(0)
+                        batch[batch_key] = torch.from_numpy(value).unsqueeze(0)
                     else:
                         # 标量值，转 tensor
-                        observation[key] = torch.tensor([value])
+                        batch[batch_key] = torch.tensor([value])
+
+                # 转换为 transition 格式
+                transition = batch_to_transition(batch)
 
                 # 处理观测并推理动作
                 with torch.inference_mode():
-                    processed_obs = preprocessor(observation)
-                    action = policy.select_action(processed_obs)
+                    processed_transition = preprocessor(transition)
+                    # 转回 batch 格式以获取 observation
+                    processed_batch = transition_to_batch(processed_transition)
+                    action = policy.select_action(processed_batch)
                     processed_action = postprocessor(action)
 
                 # 转换为机器人动作格式（移除 batch 维度）
