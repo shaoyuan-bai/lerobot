@@ -199,22 +199,37 @@ def main():
                         if isinstance(value, (torch.Tensor, np.ndarray)):
                             logging.info(f"  {key}: shape={getattr(value, 'shape', 'N/A')}, dtype={getattr(value, 'dtype', type(value))}")
                 
-                # 转换为 tensor 格式并添加 batch 维度
+                # 转换为策略期望的格式
+                # 1. 合并关节位置为 state 向量 (13维: 12个关节 + 1个夹爪，但夹爪总是0)
+                joint_keys = [
+                    'left_joint_1.pos', 'left_joint_2.pos', 'left_joint_3.pos',
+                    'left_joint_4.pos', 'left_joint_5.pos', 'left_joint_6.pos',
+                    'right_joint_1.pos', 'right_joint_2.pos', 'right_joint_3.pos',
+                    'right_joint_4.pos', 'right_joint_5.pos', 'right_joint_6.pos',
+                ]
+                state_values = [robot_obs[key] for key in joint_keys]
+                state_values.append(0.0)  # 夹爪值，总是0
+                state = np.array(state_values, dtype=np.float32)
+                
+                # 2. 重命名和转换图像
                 observation = {}
-                for key, value in robot_obs.items():
-                    if isinstance(value, torch.Tensor):
-                        # 已经是 tensor，添加 batch 维度
-                        observation[key] = value.unsqueeze(0)
-                    elif isinstance(value, np.ndarray):
-                        # numpy 数组，转 tensor 并添加 batch 维度
-                        observation[key] = torch.from_numpy(value).unsqueeze(0)
-                    else:
-                        # 标量值，转 tensor
-                        observation[key] = torch.tensor([value])
+                observation['observation.state'] = torch.from_numpy(state).unsqueeze(0)  # (1, 13)
+                
+                # 图像需要从 (H, W, C) 转为 (C, H, W) 并添加 batch 维度
+                for robot_key, policy_key in [('top', 'observation.images.top'), ('wrist', 'observation.images.wrist')]:
+                    img = robot_obs[robot_key]  # (480, 640, 3) uint8
+                    if isinstance(img, np.ndarray):
+                        img = torch.from_numpy(img)
+                    # 转换为 (C, H, W)
+                    img = img.permute(2, 0, 1)  # (3, 480, 640)
+                    # 添加 batch 维度
+                    observation[policy_key] = img.unsqueeze(0)  # (1, 3, 480, 640)
 
                 # DEBUG: 打印 observation 键
                 if frame_count == 0:
-                    logging.info(f"Observation keys (with batch): {list(observation.keys())}")
+                    logging.info(f"Policy observation keys: {list(observation.keys())}")
+                    for key, value in observation.items():
+                        logging.info(f"  {key}: shape={value.shape}, dtype={value.dtype}")
 
                 # 转换为 transition 格式
                 transition = observation_to_transition(observation)
@@ -223,8 +238,6 @@ def main():
                 if frame_count == 0:
                     logging.info(f"Transition keys: {list(transition.keys())}")
                     obs_in_transition = transition.get(TransitionKey.OBSERVATION)
-                    logging.info(f"Observation is None: {obs_in_transition is None}")
-                    logging.info(f"Observation is dict: {isinstance(obs_in_transition, dict)}")
                     if obs_in_transition:
                         logging.info(f"Transition observation keys: {list(obs_in_transition.keys())}")
 
