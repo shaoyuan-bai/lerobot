@@ -101,6 +101,11 @@ def parse_args():
         action="store_true",
         help="禁用 Rerun 可视化",
     )
+    parser.add_argument(
+        "--no-sound",
+        action="store_true",
+        help="禁用语音提示",
+    )
     return parser.parse_args()
 
 
@@ -177,7 +182,7 @@ def main():
 
     try:
         for episode_idx in range(args.num_episodes):
-            log_say(f"执行第 {episode_idx + 1}/{args.num_episodes} 个回合", play_sounds=True)
+            log_say(f"执行第 {episode_idx + 1}/{args.num_episodes} 个回合", play_sounds=not args.no_sound)
 
             # 重置策略状态
             policy.reset()
@@ -321,11 +326,17 @@ def main():
                 # 帧率控制
                 frame_count += 1
                 elapsed = time.perf_counter() - loop_start
+                
+                # 每 50 帧打印一次推理时间
+                if frame_count % 50 == 0:
+                    inference_time_ms = elapsed * 1000
+                    logging.info(f"帧 {frame_count}: 推理时间 {inference_time_ms:.1f}ms, 目标FPS {args.fps}")
+                
                 busy_wait(1 / args.fps - elapsed)
 
                 # 检查是否需要提前退出
                 if events.get("stop_recording", False):
-                    log_say("收到停止信号", play_sounds=True)
+                    log_say("收到停止信号", play_sounds=not args.no_sound)
                     break
 
             actual_fps = frame_count / (time.time() - start_time)
@@ -333,7 +344,7 @@ def main():
 
             # 回合间暂停
             if episode_idx < args.num_episodes - 1:
-                log_say("准备下一个回合，请重置环境", play_sounds=True, blocking=True)
+                log_say("准备下一个回合，请重置环境", play_sounds=not args.no_sound, blocking=True)
                 time.sleep(2)
 
     except KeyboardInterrupt:
@@ -345,7 +356,7 @@ def main():
         robot.disconnect()
         if listener is not None:
             listener.stop()
-        log_say("推理完成", play_sounds=True)
+        log_say("推理完成", play_sounds=not args.no_sound)
 
 
 if __name__ == "__main__":
