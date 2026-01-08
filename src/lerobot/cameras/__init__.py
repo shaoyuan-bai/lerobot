@@ -14,4 +14,5 @@
 
 from .camera import Camera
 from .configs import CameraConfig, ColorMode, Cv2Rotation
+from .ffmpeg import FFmpegCamera, FFmpegCameraConfig
 from .utils import make_cameras_from_configs
