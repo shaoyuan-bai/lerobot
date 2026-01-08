@@ -88,11 +88,17 @@ class FFmpegCamera(Camera):
             self.process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 bufsize=10**8
             )
-            # Wait a bit for ffmpeg to start
-            time.sleep(0.2)
+            # Wait for ffmpeg to initialize
+            time.sleep(0.5)
+            
+            # Check if process is still running
+            if self.process.poll() is not None:
+                stderr_output = self.process.stderr.read().decode('utf-8', errors='ignore')
+                raise ConnectionError(f"FFmpeg process died immediately for {self}. Error: {stderr_output}")
+                
         except Exception as e:
             raise ConnectionError(f"Failed to start ffmpeg for {self}: {e}")
         
@@ -105,17 +111,18 @@ class FFmpegCamera(Camera):
         if warmup:
             start_time = time.time()
             warmup_success = False
-            while time.time() - start_time < 2.0:
+            while time.time() - start_time < 3.0:
                 try:
                     self.read()
                     warmup_success = True
+                    logger.info(f"{self} warmup successful.")
                     break
                 except Exception as e:
                     logger.debug(f"Warmup attempt failed: {e}")
-                    time.sleep(0.1)
+                    time.sleep(0.2)
             
             if not warmup_success:
-                logger.warning(f"{self} warmup failed, but connection established.")
+                raise ConnectionError(f"{self} warmup failed after 3 seconds. Camera may not be accessible.")
         
         logger.info(f"{self} connected via ffmpeg.")
     
