@@ -195,12 +195,11 @@ class FFmpegCamera(Camera):
         return frame
     
     def disconnect(self):
-        if not self.is_connected and self.thread is None:
-            raise DeviceNotConnectedError(f"{self} not connected.")
-        
+        # Stop read thread first
         if self.thread is not None:
             self._stop_read_thread()
         
+        # Terminate ffmpeg process
         if self.process is not None:
             self.process.terminate()
             try:

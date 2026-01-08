@@ -145,6 +145,12 @@ class RM65DataRecorder:
         print("\n请将机械臂移动到起始位置...")
         input("按回车键开始录制...")
         
+        # 在录制前重新连接相机
+        print("\n正在启动相机...")
+        for cam_name, cam in self.robot.cameras.items():
+            if not cam.is_connected:
+                cam.connect()
+        
         print(f"\n🔴 开始录制 ({duration} 秒, {self.fps} Hz)")
         print("请按住使能按钮并演示任务...")
         
