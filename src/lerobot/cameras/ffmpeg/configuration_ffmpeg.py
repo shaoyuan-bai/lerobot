@@ -21,6 +21,3 @@ class FFmpegCameraConfig(CameraConfig):
     height: int | None = 480
     pixel_format: str = "rgb24"
     input_format: str = "v4l2"
-    
-    def __post_init__(self):
-        super().__post_init__()
