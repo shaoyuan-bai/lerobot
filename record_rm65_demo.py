@@ -131,7 +131,10 @@ class RM65DataRecorder:
         
         # 询问任务描述（如果没有提供）
         if task_description is None:
-            task_description = input("\n请输入任务描述 (例如: pick up the pen): ").strip()
+            import sys
+            sys.stdout.flush()
+            print("\n请输入任务描述 (例如: pick up the pen): ", end='', flush=True)
+            task_description = sys.stdin.readline().strip()
             if not task_description:
                 task_description = f"rm65_demo_episode_{episode_index}"
                 print(f"使用默认描述: {task_description}")
