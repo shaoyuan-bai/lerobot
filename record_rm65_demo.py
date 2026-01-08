@@ -143,7 +143,10 @@ class RM65DataRecorder:
         
         # 准备阶段
         print("\n请将机械臂移动到起始位置...")
-        input("按回车键开始录制...")
+        import sys
+        sys.stdout.flush()
+        print("按回车键开始录制...", flush=True)
+        sys.stdin.readline()
         
         # 在录制前重新连接相机
         print("\n正在启动相机...")
@@ -299,7 +302,10 @@ def main():
             
             if i < args.num_episodes - 1:
                 print("\n准备录制下一个片段...")
-                input("按回车继续,或 Ctrl+C 退出...")
+                import sys
+                sys.stdout.flush()
+                print("按回车继续,或 Ctrl+C 退出...", flush=True)
+                sys.stdin.readline()
         
         # LeRobot v3.0 不需要 consolidate(),数据已在 save_episode() 中保存
         print("\n✓ 数据集已保存")
