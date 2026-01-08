@@ -33,7 +33,7 @@ import time
 import numpy as np
 import torch
 
-from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
+from lerobot.cameras.ffmpeg import FFmpegCameraConfig
 from lerobot.policies.factory import make_pre_post_processors
 from lerobot.processor import make_default_robot_action_processor
 from lerobot.processor.converters import observation_to_transition, transition_to_batch
@@ -104,18 +104,18 @@ def main():
     # 启用 DEBUG 级别日志
     logging.getLogger("lerobot.robots").setLevel(logging.DEBUG)
 
-    # 创建相机配置（使用设备路径避免索引变化）
+    # 创建相机配置（使用 FFmpeg 获取更高性能）
     camera_config = {
-        "top": OpenCVCameraConfig(
-            index_or_path="/dev/video0",  # 固定使用 video0
-            width=640,
-            height=480,
+        "top": FFmpegCameraConfig(
+            index_or_path="/dev/video0",
+            width=1920,
+            height=1080,
             fps=args.fps,
         ),
-        "wrist": OpenCVCameraConfig(
-            index_or_path="/dev/video2",  # 固定使用 video2
-            width=640,
-            height=480,
+        "wrist": FFmpegCameraConfig(
+            index_or_path="/dev/video2",
+            width=1920,
+            height=1080,
             fps=args.fps,
         ),
     }
@@ -258,7 +258,7 @@ def main():
                     try:
                         # 直接调用 _forward 而不是 __call__，因为 __call__ 会先调用 to_transition
                         # 而我们已经有了 transition 格式的数据
-                        processed_transition = preprocessor(transition)
+                        processed_transition = preprocessor._forward(transition)
                     except ValueError as e:
                         logging.error(f"Preprocessor failed: {e}")
                         logging.error(f"Transition keys at error: {list(transition.keys())}")

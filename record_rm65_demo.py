@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 from lerobot.robots.bi_rm65_follower import BiRM65FollowerConfig, BiRM65Follower
-from lerobot.cameras.opencv import OpenCVCameraConfig
+from lerobot.cameras.ffmpeg import FFmpegCameraConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import build_dataset_frame
 from lerobot.utils.visualization_utils import _init_rerun, log_rerun_data
@@ -34,19 +34,19 @@ class RM65DataRecorder:
         self.fps = fps
         self.display_data = display_data
         
-        # 相机配置
+        # 相机配置 (使用 FFmpeg)
         cameras_config = {
-            "top": OpenCVCameraConfig(
-                index_or_path=0,
+            "top": FFmpegCameraConfig(
+                index_or_path="/dev/video0",
                 fps=fps,
-                width=640,
-                height=480,
+                width=1920,
+                height=1080,
             ),
-            "wrist": OpenCVCameraConfig(
-                index_or_path=2,  # /dev/video2 - 奥比中光大白Pro RGB通道
+            "wrist": FFmpegCameraConfig(
+                index_or_path="/dev/video2",
                 fps=fps,
-                width=640,
-                height=480,
+                width=1920,
+                height=1080,
             ),
         }
         
