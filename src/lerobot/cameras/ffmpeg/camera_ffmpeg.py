@@ -75,6 +75,7 @@ class FFmpegCamera(Camera):
         cmd = [
             'ffmpeg',
             '-f', self.input_format,
+            '-input_format', 'mjpeg',
             '-framerate', str(self.fps),
             '-video_size', f'{self.width}x{self.height}',
             '-i', str(self.index_or_path),
