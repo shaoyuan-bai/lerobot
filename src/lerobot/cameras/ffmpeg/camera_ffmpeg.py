@@ -91,6 +91,8 @@ class FFmpegCamera(Camera):
                 stderr=subprocess.DEVNULL,
                 bufsize=10**8
             )
+            # Wait a bit for ffmpeg to start
+            time.sleep(0.2)
         except Exception as e:
             raise ConnectionError(f"Failed to start ffmpeg for {self}: {e}")
         
@@ -102,12 +104,18 @@ class FFmpegCamera(Camera):
         
         if warmup:
             start_time = time.time()
-            while time.time() - start_time < 1.0:
+            warmup_success = False
+            while time.time() - start_time < 2.0:
                 try:
                     self.read()
+                    warmup_success = True
+                    break
+                except Exception as e:
+                    logger.debug(f"Warmup attempt failed: {e}")
                     time.sleep(0.1)
-                except Exception:
-                    pass
+            
+            if not warmup_success:
+                logger.warning(f"{self} warmup failed, but connection established.")
         
         logger.info(f"{self} connected via ffmpeg.")
     
