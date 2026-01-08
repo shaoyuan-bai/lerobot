@@ -42,11 +42,3 @@ class CameraConfig(draccus.ChoiceRegistry, abc.ABC):
     @property
     def type(self) -> str:
         return self.get_choice_name(self.__class__)
-
-
-# Register camera types
-from .opencv.configuration_opencv import OpenCVCameraConfig  # noqa: E402
-from .ffmpeg.configuration_ffmpeg import FFmpegCameraConfig  # noqa: E402
-
-CameraConfig.register_subclass("opencv", OpenCVCameraConfig)
-CameraConfig.register_subclass("ffmpeg", FFmpegCameraConfig)

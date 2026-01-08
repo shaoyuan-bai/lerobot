@@ -16,3 +16,9 @@ from .camera import Camera
 from .configs import CameraConfig, ColorMode, Cv2Rotation
 from .ffmpeg import FFmpegCamera, FFmpegCameraConfig
 from .utils import make_cameras_from_configs
+
+# Register camera types to draccus choice system
+from .opencv.configuration_opencv import OpenCVCameraConfig
+
+CameraConfig.register_subclass("opencv", OpenCVCameraConfig)
+CameraConfig.register_subclass("ffmpeg", FFmpegCameraConfig)
