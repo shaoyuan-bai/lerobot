@@ -146,17 +146,16 @@ def decode_video_frames_torchvision(
     min_, argmin_ = dist.min(1)
 
     is_within_tol = min_ < tolerance_s
-    assert is_within_tol.all(), (
-        f"One or several query timestamps unexpectedly violate the tolerance ({min_[~is_within_tol]} > {tolerance_s=})."
-        "It means that the closest frame that can be loaded from the video is too far away in time."
-        "This might be due to synchronization issues with timestamps during data collection."
-        "To be safe, we advise to ignore this item during training."
-        f"\nqueried timestamps: {query_ts}"
-        f"\nloaded timestamps: {loaded_ts}"
-        f"\nvideo: {video_path}"
-        f"\nbackend: {backend}"
-    )
-
+    if not is_within_tol.all():
+         logging.warning(
+                "[LeRobot][Video] timestamp mismatch detected; will use closest frames and continue.\n"
+                f"min_deltas={min_[~is_within_tol].cpu().tolist()} tolerance_s={tolerance_s}\n"
+                f"queried timestamps: {query_ts}\n"
+                f"loaded timestamps: {loaded_ts}\n"
+                f"video: {video_path}\n"
+                f"backend: {backend}"
+         )
+         pass
     # get closest frames to the query timestamps
     closest_frames = torch.stack([loaded_frames[idx] for idx in argmin_])
     closest_ts = loaded_ts[argmin_]
