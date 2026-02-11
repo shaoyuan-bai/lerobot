@@ -1,126 +1,128 @@
-#!/usr/bin/env python
-
-# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-"""
-RM65 双臂机器人推理脚本
-
-使用训练好的策略控制 RM65 机器人执行任务。
-
-用法示例:
-    python evaluate_rm65.py \
-        --policy-path /home/woosh/bai/lerobot/outputs/train/rm65_pickup_xuebi1/checkpoints/last/pretrained_model \
-        --num-episodes 5 \
-        --fps 20
-"""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 import argparse
 import logging
 import time
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from lerobot.cameras.ffmpeg import FFmpegCameraConfig
-from lerobot.policies.factory import make_pre_post_processors
-from lerobot.processor import make_default_robot_action_processor
+from lerobot.configs.policies import PreTrainedConfig
+from lerobot.policies.factory import get_policy_class, make_pre_post_processors
 from lerobot.processor.converters import observation_to_transition, transition_to_batch
 from lerobot.processor.core import TransitionKey
 from lerobot.robots.bi_rm65_follower.config_bi_rm65_follower import BiRM65FollowerConfig
 from lerobot.robots.bi_rm65_follower.bi_rm65_follower import BiRM65Follower
-from lerobot.utils.control_utils import init_keyboard_listener
-from lerobot.utils.robot_utils import busy_wait
 from lerobot.utils.utils import init_logging, log_say
-from lerobot.utils.visualization_utils import _init_rerun
+
+
+def npimg_to_torch_chw01(img: np.ndarray) -> torch.Tensor:
+    if not img.flags["WRITEABLE"]:
+        img = img.copy()
+    return torch.from_numpy(img).permute(2, 0, 1).contiguous().float() / 255.0  # (C,H,W)
+
+
+def resize_chw(img_chw: torch.Tensor, out_hw: Tuple[int, int]) -> torch.Tensor:
+    x = img_chw.unsqueeze(0)  # (1,C,H,W)
+    x = F.interpolate(x, size=out_hw, mode="bilinear", align_corners=False)
+    return x.squeeze(0)  # (C,H,W)
+
+
+def get_current_joints_6(robot_obs: Dict, side: str) -> np.ndarray:
+    assert side in ("left", "right")
+    keys = [f"{side}_joint_{i}.pos" for i in range(1, 7)]
+    return np.array([float(robot_obs[k]) for k in keys], dtype=np.float32)
+
+
+def arm_action_from_target6(target6: np.ndarray) -> Dict[str, float]:
+    # RM65Follower 期望 joint_1.pos ... joint_6.pos（没有 left_/right_ 前缀）
+    return {f"joint_{i}.pos": float(target6[i - 1]) for i in range(1, 7)}
+
+
+def extract_policy_expected_image_keys(policy) -> List[str]:
+    cfg = getattr(policy, "config", None)
+    if cfg is None:
+        return []
+    img_feats = getattr(cfg, "image_features", None)
+    if isinstance(img_feats, dict):
+        return list(img_feats.keys())
+    return []
+
+
+def fill_policy_image_keys_in_batch(batch: Dict, k_fixed: str, k_handeye: str) -> None:
+    if k_fixed in batch and k_handeye in batch:
+        return
+    candidates = [k for k in ("observation.image", "observation.image2", "observation.image3") if k in batch]
+    if len(candidates) >= 2:
+        batch.setdefault(k_fixed, batch[candidates[0]])
+        batch.setdefault(k_handeye, batch[candidates[1]])
+        return
+    # 退化：能补一个就补一个
+    if k_fixed not in batch and k_handeye in batch:
+        batch[k_fixed] = batch[k_handeye]
+    if k_handeye not in batch and k_fixed in batch:
+        batch[k_handeye] = batch[k_fixed]
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="RM65 双臂机器人策略推理")
-    parser.add_argument(
-        "--policy-path",
-        type=str,
-        required=True,
-        help="训练好的模型路径（通常是 checkpoints/last/pretrained_model）",
-    )
-    parser.add_argument(
-        "--num-episodes",
-        type=int,
-        default=5,
-        help="执行的回合数量",
-    )
-    parser.add_argument(
-        "--fps",
-        type=int,
-        default=20,
-        help="控制频率（帧每秒）",
-    )
-    parser.add_argument(
-        "--episode-time-s",
-        type=int,
-        default=60,
-        help="每个回合的最大时长（秒）",
-    )
-    parser.add_argument(
-        "--left-arm-ip",
-        type=str,
-        default="169.254.128.20",
-        help="左臂 IP 地址",
-    )
-    parser.add_argument(
-        "--right-arm-ip",
-        type=str,
-        default="169.254.128.21",
-        help="右臂 IP 地址",
-    )
-    parser.add_argument(
-        "--no-display",
-        action="store_true",
-        help="禁用 Rerun 可视化",
-    )
-    parser.add_argument(
-        "--no-sound",
-        action="store_true",
-        help="禁用语音提示",
-    )
-    return parser.parse_args()
+    p = argparse.ArgumentParser("RM65 SmolVLA evaluation v3 (stable timing)")
+
+    p.add_argument("--policy-path", type=str, required=True)
+    p.add_argument("--task", type=str, required=True)
+
+    p.add_argument("--num-episodes", type=int, default=1)
+    p.add_argument("--episode-time-s", type=int, default=60)
+
+    p.add_argument("--cam-fps", type=int, default=10)
+    p.add_argument("--target-fps", type=int, default=8)
+
+    p.add_argument("--left-arm-ip", type=str, default="169.254.128.20")
+    p.add_argument("--right-arm-ip", type=str, default="169.254.128.21")
+
+    p.add_argument("--control-arm", choices=["left", "right"], default="right")
+    p.add_argument("--delta-scale", type=float, default=5.0)
+    p.add_argument("--delta-clip", type=float, default=5.0)
+
+    p.add_argument("--cam-width", type=int, default=640)
+    p.add_argument("--cam-height", type=int, default=360)
+    p.add_argument("--model-image-size", type=int, default=256)
+
+    p.add_argument("--send-left", action="store_true", help="也发送左臂动作（默认不发）")
+    p.add_argument("--send-every", type=int, default=1, help="每 N 帧发送一次动作（默认 1）")
+
+    p.add_argument("--no-display", action="store_true")
+    p.add_argument("--no-sound", action="store_true")
+    return p.parse_args()
 
 
 def main():
     args = parse_args()
     init_logging()
-    
-    # 启用 DEBUG 级别日志
-    logging.getLogger("lerobot.robots").setLevel(logging.DEBUG)
+    logging.getLogger("lerobot.robots").setLevel(logging.INFO)
 
-    # 创建相机配置（使用 FFmpeg 获取更高性能）
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    logging.info(f"🚀 Using device: {device}")
+
+    # ✅ 修复：严格使用 args.cam_width / args.cam_height
     camera_config = {
         "top": FFmpegCameraConfig(
             index_or_path="/dev/video0",
-            width=1920,
-            height=1080,
-            fps=args.fps,
+            width=args.cam_width,
+            height=args.cam_height,
+            fps=args.cam_fps,
         ),
         "wrist": FFmpegCameraConfig(
             index_or_path="/dev/video2",
-            width=1920,
-            height=1080,
-            fps=args.fps,
+            width=args.cam_width,
+            height=args.cam_height,
+            fps=args.cam_fps,
         ),
     }
 
-    # 创建机器人配置
     robot_config = BiRM65FollowerConfig(
         left_arm_ip=args.left_arm_ip,
         right_arm_ip=args.right_arm_ip,
@@ -128,245 +130,179 @@ def main():
         id="rm65_follower",
     )
 
-    # 实例化机器人
     logging.info("正在初始化 RM65 机器人...")
     robot = BiRM65Follower(robot_config)
 
-    # 加载训练好的策略，确保使用 GPU
     logging.info(f"正在加载策略: {args.policy_path}")
-    from lerobot.policies.act.modeling_act import ACTPolicy
-    
-    # 确定设备（不依赖 policy.config.device）
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    logging.info(f"🚀 Using device: {device}")
-    
-    # 加载模型并移到指定设备
-    policy = ACTPolicy.from_pretrained(args.policy_path).to(device).eval()
+    cfg = PreTrainedConfig.from_pretrained(args.policy_path)
+    policy_cls = get_policy_class(cfg.type)
+    policy = policy_cls.from_pretrained(args.policy_path).to(device).eval()
 
-    # 创建预处理和后处理器（使用确定的设备）
     preprocessor, postprocessor = make_pre_post_processors(
         policy_cfg=policy.config,
         pretrained_path=args.policy_path,
         preprocessor_overrides={"device_processor": {"device": str(device)}},
     )
-    
-    # DEBUG: 打印 preprocessor 的结构
-    logging.info(f"Preprocessor type: {type(preprocessor)}")
-    logging.info(f"Preprocessor: {preprocessor}")
-    if hasattr(preprocessor, 'steps'):
-        logging.info(f"Preprocessor steps: {preprocessor.steps}")
 
-    # 创建机器人动作处理器
-    robot_action_processor = make_default_robot_action_processor()
+    policy_img_keys = extract_policy_expected_image_keys(policy)
+    preferred_fixed = policy_img_keys[1] if len(policy_img_keys) > 1 else "observation.images.fixed"
+    preferred_handeye = policy_img_keys[0] if len(policy_img_keys) > 0 else "observation.images.handeye"
 
-    # 连接机器人
+    logging.info(f"Loaded policy type: {cfg.type}")
+    logging.info(f"Loaded policy class: {policy.__class__}")
+    logging.info(f"Expected policy image feature keys (from policy.config.image_features): {policy_img_keys}")
+
     logging.info("正在连接机器人...")
     robot.connect()
-
     if not robot.is_connected:
         raise RuntimeError("机器人连接失败！")
 
-    # 初始化键盘监听和可视化
-    listener, events = init_keyboard_listener()
-    if not args.no_display:
-        _init_rerun(session_name="rm65_evaluation")
+    dt = 1.0 / max(1, args.target_fps)
 
     logging.info(f"开始执行策略推理，共 {args.num_episodes} 个回合")
     logging.info("按 Ctrl+C 可随时停止")
+    logging.info(
+        f"✅ Delta ON | delta-scale={args.delta_scale}, delta-clip={args.delta_clip}, control-arm={args.control_arm} | "
+        f"target-fps={args.target_fps} | cam-fps={args.cam_fps} | send-left={args.send_left} | send-every={args.send_every}"
+    )
 
     try:
-        for episode_idx in range(args.num_episodes):
-            log_say(f"执行第 {episode_idx + 1}/{args.num_episodes} 个回合", play_sounds=not args.no_sound)
-
-            # 重置策略状态
+        for epi in range(args.num_episodes):
+            log_say(f"执行第 {epi+1}/{args.num_episodes} 个回合", play_sounds=not args.no_sound)
             policy.reset()
 
-            # 执行一个回合
-            start_time = time.time()
-            frame_count = 0
+            start_wall = time.time()
+            start = time.perf_counter()
+            next_tick = start
+            frame = 0
 
-            while time.time() - start_time < args.episode_time_s:
+            while time.time() - start_wall < args.episode_time_s:
                 loop_start = time.perf_counter()
 
-                # 获取机器人观测
+                # -------- obs --------
                 t0 = time.perf_counter()
                 robot_obs = robot.get_observation()
                 t1 = time.perf_counter()
-                
-                # DEBUG: 打印观测数据结构
-                if frame_count == 0:
-                    logging.info(f"Robot observation keys: {list(robot_obs.keys())}")
-                    for key, value in robot_obs.items():
-                        if isinstance(value, (torch.Tensor, np.ndarray)):
-                            logging.info(f"  {key}: shape={getattr(value, 'shape', 'N/A')}, dtype={getattr(value, 'dtype', type(value))}")
-                
-                # 转换为策略期望的格式（不添加 batch 维度，让 preprocessor 处理）
-                # 1. 合并关节位置为 state 向量 (13维: 12个关节 + 1个夹爪，但夹爪总是0)
-                joint_keys = [
-                    'left_joint_1.pos', 'left_joint_2.pos', 'left_joint_3.pos',
-                    'left_joint_4.pos', 'left_joint_5.pos', 'left_joint_6.pos',
-                    'right_joint_1.pos', 'right_joint_2.pos', 'right_joint_3.pos',
-                    'right_joint_4.pos', 'right_joint_5.pos', 'right_joint_6.pos',
-                ]
-                state_values = [robot_obs[key] for key in joint_keys]
-                state_values.append(0.0)  # 夹爪值，总是0
-                state = np.array(state_values, dtype=np.float32)
-                
-                # 2. 重命名和转换图像（添加 "observation." 前缀以匹配策略期望）
-                observation = {}
-                observation['observation.state'] = torch.from_numpy(state)  # (13,)
-                
-                # 图像需要从 (H, W, C) 转为 (C, H, W)，并添加 "observation." 前缀
-                # 同时转换为 float32 并归一化到 [0, 1] 以匹配训练时的格式
-                for robot_key, obs_key in [('top', 'observation.images.top'), ('wrist', 'observation.images.wrist')]:
-                    img = robot_obs[robot_key]  # (480, 640, 3) uint8
-                    if isinstance(img, np.ndarray):
-                        img = torch.from_numpy(img)
-                    # 转换为 (C, H, W) 并转为 float32，范围 [0, 1]
-                    img = img.permute(2, 0, 1).float() / 255.0  # (3, 480, 640) float32 in [0, 1]
-                    observation[obs_key] = img
 
-                # DEBUG: 打印 observation 键
-                if frame_count == 0:
-                    logging.info(f"Policy observation keys: {list(observation.keys())}")
-                    for key, value in observation.items():
-                        logging.info(f"  {key}: shape={value.shape}, dtype={value.dtype}")
+                cur_left6 = get_current_joints_6(robot_obs, "left")
+                cur_right6 = get_current_joints_6(robot_obs, "right")
 
-                # 转换为 transition 格式
-                transition = observation_to_transition(observation)
-                
-                # DEBUG: 打印 transition 结构
-                if frame_count == 0:
-                    logging.info(f"Transition keys: {list(transition.keys())}")
-                    obs_in_transition = transition.get(TransitionKey.OBSERVATION)
-                    if obs_in_transition:
-                        logging.info(f"Transition observation keys: {list(obs_in_transition.keys())}")
+                top_chw = npimg_to_torch_chw01(robot_obs["top"])      # (C,H,W) 640x360
+                wrist_chw = npimg_to_torch_chw01(robot_obs["wrist"])  # (C,H,W) 640x360
 
-                # 处理观测并推理动作
+                out_hw = (args.model_image_size, args.model_image_size)
+                top_256 = resize_chw(top_chw, out_hw)
+                wrist_256 = resize_chw(wrist_chw, out_hw)
+
+                obs: Dict[str, torch.Tensor] = {}
+
+                state6 = cur_right6 if args.control_arm == "right" else cur_left6
+                obs["observation.state"] = torch.from_numpy(state6).float().unsqueeze(0)  # (1,6)
+
+                # policy 期望的 keys：给 640x360 的原图，且 BCHW
+                obs[preferred_fixed] = top_chw.unsqueeze(0)      # (1,3,H,W)
+                obs[preferred_handeye] = wrist_chw.unsqueeze(0)  # (1,3,H,W)
+
+                # 兼容 normalizer/preprocessor
+                obs["observation.image"] = top_256.unsqueeze(0)
+                obs["observation.image2"] = wrist_256.unsqueeze(0)
+                obs["observation.image3"] = top_256.unsqueeze(0)
+
+                transition = observation_to_transition(obs)
+                transition[TransitionKey.COMPLEMENTARY_DATA] = {"task": args.task}
+
+                # -------- infer --------
                 with torch.inference_mode():
-                    # 最后一次检查 transition 结构
-                    if frame_count == 0:
-                        logging.info(f"Before preprocessor - transition type: {type(transition)}")
-                        logging.info(f"Before preprocessor - has OBSERVATION key: {TransitionKey.OBSERVATION in transition}")
-                        obs_check = transition.get(TransitionKey.OBSERVATION)
-                        logging.info(f"Before preprocessor - observation value: {obs_check is not None and isinstance(obs_check, dict)}")
-                        # 测试 copy() 行为
-                        test_copy = transition.copy()
-                        logging.info(f"After copy - has OBSERVATION key: {TransitionKey.OBSERVATION in test_copy}")
-                        logging.info(f"After copy - observation value: {test_copy.get(TransitionKey.OBSERVATION) is not None}")
-                    
-                    try:
-                        # 直接调用 _forward 而不是 __call__，因为 __call__ 会先调用 to_transition
-                        # 而我们已经有了 transition 格式的数据
-                        processed_transition = preprocessor._forward(transition)
-                    except ValueError as e:
-                        logging.error(f"Preprocessor failed: {e}")
-                        logging.error(f"Transition keys at error: {list(transition.keys())}")
-                        logging.error(f"Transition[OBSERVATION]: {transition.get(TransitionKey.OBSERVATION)}")
-                        raise
-                    
-                    # DEBUG: 打印处理后的 observation 键
-                    if frame_count == 0:
-                        processed_obs = processed_transition.get(TransitionKey.OBSERVATION)
-                        if processed_obs:
-                            logging.info(f"After preprocessor - observation keys: {list(processed_obs.keys())}")
-                    
-                    # 转回 batch 格式以获取 observation
-                    processed_batch = transition_to_batch(processed_transition)
-                    
-                    # DEBUG: 打印 batch 键
-                    if frame_count == 0:
-                        logging.info(f"After transition_to_batch - batch keys: {list(processed_batch.keys())}")
-                    
-                    action = policy.select_action(processed_batch)
-                    processed_action = postprocessor(action)
-                
+                    processed_transition = preprocessor._forward(transition)
+                    batch = transition_to_batch(processed_transition)
+                    fill_policy_image_keys_in_batch(batch, preferred_fixed, preferred_handeye)
+
+                    # 保证所有图像是 BCHW
+                    for k, v in list(batch.items()):
+                        if isinstance(v, torch.Tensor) and v.ndim == 3:
+                            batch[k] = v.unsqueeze(0)
+
+                    action_raw = policy.select_action(batch)
+                    action_proc = postprocessor(action_raw)
+
                 t2 = time.perf_counter()
 
-                # 转换为机器人动作格式
-                # processed_action 可能是 Tensor 或 dict
-                if isinstance(processed_action, torch.Tensor):
-                    # 如果是 Tensor，移除 batch 维度并转 numpy
-                    action_array = processed_action.squeeze(0).cpu().numpy()  # (13,)
-                    
-                    # RM65 双臂机器人期望的动作格式：
-                    # - 前 6 个值：左臂关节角度 (joint_1 到 joint_6)
-                    # - 接下来 6 个值：右臂关节角度 (joint_1 到 joint_6)
-                    # - 最后 1 个值：夹爪位置
-                    robot_action = {}
-                    
-                    # 左臂动作 (joint_1 到 joint_6)
-                    for i in range(6):
-                        robot_action[f'left_joint_{i+1}.pos'] = float(action_array[i])
-                    
-                    # 右臂动作 (joint_1 到 joint_6)
-                    for i in range(6):
-                        robot_action[f'right_joint_{i+1}.pos'] = float(action_array[i+6])
-                    
-                    # 夹爪动作 (如果不是 0)
-                    if len(action_array) > 12 and action_array[12] != 0:
-                        robot_action['right_gripper.pos'] = float(action_array[12])
-                    
-                    # DEBUG: 打印动作字典
-                    if frame_count == 0:
-                        logging.info(f"Sending action with keys: {list(robot_action.keys())}")
-                        logging.info(f"Action values (first 3): left=[{action_array[0]:.2f}, {action_array[1]:.2f}, {action_array[2]:.2f}], right=[{action_array[6]:.2f}, {action_array[7]:.2f}, {action_array[8]:.2f}]")
-                    
-                elif isinstance(processed_action, dict):
-                    # 如果是 dict，移除每个值的 batch 维度
-                    robot_action = {}
-                    for key, value in processed_action.items():
-                        if isinstance(value, torch.Tensor):
-                            robot_action[key] = value.squeeze(0).cpu().numpy()
-                        else:
-                            robot_action[key] = value
+                # -------- parse delta6 --------
+                if isinstance(action_proc, torch.Tensor):
+                    act = action_proc
+                elif isinstance(action_proc, dict) and "action" in action_proc and isinstance(action_proc["action"], torch.Tensor):
+                    act = action_proc["action"]
                 else:
-                    raise ValueError(f"Unexpected processed_action type: {type(processed_action)}")
+                    raise ValueError(f"Unexpected processed_action: {type(action_proc)}")
 
-                # 发送动作到机器人
-                robot.send_action(robot_action)
+                act_np = act.squeeze(0).float().cpu().numpy()
+                delta6 = act_np[:6].astype(np.float32)
+
+                if args.delta_clip and args.delta_clip > 0:
+                    delta6 = np.clip(delta6, -float(args.delta_clip), float(args.delta_clip))
+                delta6 = delta6 * float(args.delta_scale)
+
+                if frame == 0:
+                    logging.info(f"First delta6 used: {delta6}")
+                    logging.info(f"Current right joints: {cur_right6}")
+
+                if args.control_arm == "right":
+                    tgt_right6 = cur_right6 + delta6
+                    tgt_left6 = cur_left6
+                else:
+                    tgt_left6 = cur_left6 + delta6
+                    tgt_right6 = cur_right6
+
+                # -------- act --------
+                send_now = (frame % max(1, args.send_every) == 0)
+                if send_now:
+                    if args.control_arm == "right":
+                        robot.right_arm.send_action(arm_action_from_target6(tgt_right6))
+                        if args.send_left:
+                            robot.left_arm.send_action(arm_action_from_target6(tgt_left6))
+                    else:
+                        robot.left_arm.send_action(arm_action_from_target6(tgt_left6))
+                        if args.send_left:
+                            robot.right_arm.send_action(arm_action_from_target6(tgt_right6))
+
                 t3 = time.perf_counter()
 
-                # 帧率控制（修正负等待卡顿）
-                frame_count += 1
-                elapsed = time.perf_counter() - loop_start
-                
-                # 每 50 帧打印一次分段计时
-                if frame_count % 50 == 0:
+                frame += 1
+
+                obs_ms = (t1 - t0) * 1000
+                infer_ms = (t2 - t1) * 1000
+                act_ms = (t3 - t2) * 1000
+                total_ms = (t3 - t0) * 1000
+
+                # -------- fixed tick scheduling --------
+                next_tick += dt
+                now = time.perf_counter()
+                sleep_t = next_tick - now
+                if sleep_t > 0:
+                    time.sleep(sleep_t)
+                    overrun_ms = 0.0
+                else:
+                    # 这一帧超时了（不 sleep），但下一帧仍按 next_tick 推进，不“越跑越慢”
+                    overrun_ms = (-sleep_t) * 1000
+
+                if frame % 50 == 0:
+                    sleep_ms = max(0.0, sleep_t) * 1000
                     logging.info(
-                        f"帧 {frame_count}: obs={((t1-t0)*1000):.1f}ms, "
-                        f"infer={((t2-t1)*1000):.1f}ms, "
-                        f"act={((t3-t2)*1000):.1f}ms, "
-                        f"total={((t3-t0)*1000):.1f}ms (目标: {(1000/args.fps):.1f}ms)"
+                        f"帧 {frame}: obs={obs_ms:.1f}ms, infer={infer_ms:.1f}ms, act={act_ms:.1f}ms, "
+                        f"total={total_ms:.1f}ms | sleep={sleep_ms:.1f}ms | overrun={overrun_ms:.1f}ms "
+                        f"(目标周期: {dt*1000:.1f}ms)"
                     )
-                
-                # 避免"负等待"造成的卡顿
-                dt = (1.0 / args.fps) - elapsed
-                if dt > 0:
-                    busy_wait(dt)
 
-                # 检查是否需要提前退出
-                if events.get("stop_recording", False):
-                    log_say("收到停止信号", play_sounds=not args.no_sound)
-                    break
-
-            actual_fps = frame_count / (time.time() - start_time)
-            logging.info(f"回合 {episode_idx + 1} 完成，实际帧率: {actual_fps:.2f} fps")
-
-            # 回合间暂停
-            if episode_idx < args.num_episodes - 1:
-                log_say("准备下一个回合，请重置环境", play_sounds=not args.no_sound, blocking=True)
-                time.sleep(2)
+            elapsed = time.perf_counter() - start
+            actual_fps = frame / max(1e-6, elapsed)
+            logging.info(f"回合 {epi+1} 完成，实际帧率: {actual_fps:.2f} fps")
 
     except KeyboardInterrupt:
         logging.info("收到中断信号，正在停止...")
 
     finally:
-        # 清理资源
         logging.info("正在断开机器人连接...")
         robot.disconnect()
-        if listener is not None:
-            listener.stop()
         log_say("推理完成", play_sounds=not args.no_sound)
 
 

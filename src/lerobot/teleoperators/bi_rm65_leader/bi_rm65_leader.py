@@ -37,29 +37,7 @@ class BiRM65Leader(Teleoperator):
     def __init__(self, config: BiRM65LeaderConfig):
         super().__init__(config)
         self.config = config
-
-        # 创建左臂配置
-        left_id = f"{config.id}_left" if config.id else None
-        left_arm_config = RM65LeaderConfig(
-            id=left_id,
-            calibration_dir=config.calibration_dir,
-            arm_ip=config.left_arm_ip,
-            port=config.port,
-            drag_sensitivity=config.drag_sensitivity,
-        )
-
-        # 创建右臂配置
-        right_id = f"{config.id}_right" if config.id else None
-        right_arm_config = RM65LeaderConfig(
-            id=right_id,
-            calibration_dir=config.calibration_dir,
-            arm_ip=config.right_arm_ip,
-            port=config.port,
-            drag_sensitivity=config.drag_sensitivity,
-        )
-
-        self.left_arm = RM65Leader(left_arm_config)
-        self.right_arm = RM65Leader(right_arm_config)
+        self.robot_type = config.type
 
     @cached_property
     def action_features(self) -> dict[str, type]:
@@ -75,18 +53,15 @@ class BiRM65Leader(Teleoperator):
 
     @property
     def is_connected(self) -> bool:
-        """检查左右臂是否都已连接"""
-        return self.left_arm.is_connected and self.right_arm.is_connected
+        return True  # 复用 follower 连接
 
-    def connect(self, calibrate: bool = True) -> None:
-        """连接左右臂并启动拖动示教"""
-        self.left_arm.connect(calibrate)
-        self.right_arm.connect(calibrate)
+    def connect(self) -> None:
+        """不需要连接（复用 follower）"""
+        pass
 
     @property
     def is_calibrated(self) -> bool:
-        """RM65 不需要标定"""
-        return self.left_arm.is_calibrated and self.right_arm.is_calibrated
+        return True
 
     def calibrate(self) -> None:
         """RM65 不需要标定"""
@@ -102,29 +77,15 @@ class BiRM65Leader(Teleoperator):
         pass
 
     def get_action(self) -> dict[str, float]:
-        """
-        读取左右臂当前关节角度
-        
-        Returns:
-            dict: 左臂和右臂的关节角度,分别带 "left_" 和 "right_" 前缀
-        """
-        action_dict = {}
-
-        # 获取左臂动作 (添加 "left_" 前缀)
-        left_action = self.left_arm.get_action()
-        action_dict.update({f"left_{key}": value for key, value in left_action.items()})
-
-        # 获取右臂动作 (添加 "right_" 前缀)
-        right_action = self.right_arm.get_action()
-        action_dict.update({f"right_{key}": value for key, value in right_action.items()})
-
-        return action_dict
+        """拖动示教：返回 follower observation 作为 action"""
+        # record.py 会在调用后使用 obs，所以这里返回空字典
+        # 实际 action 由 record.py 的 teleop_action_processor 从 obs 提取
+        return {}
 
     def send_feedback(self, feedback: dict[str, float]) -> None:
         """RM65 不支持力反馈"""
         pass
 
     def disconnect(self) -> None:
-        """断开左右臂连接并停止拖动示教"""
-        self.left_arm.disconnect()
-        self.right_arm.disconnect()
+        """不需要断开（复用 follower）"""
+        pass

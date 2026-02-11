@@ -21,6 +21,7 @@ from lerobot.cameras import CameraConfig
 from ..config import RobotConfig
 
 
+@RobotConfig.register_subclass("rm65_follower")
 @dataclass
 class RM65FollowerConfig(RobotConfig):
     """睿尔曼 RM65 单臂配置"""
@@ -36,6 +37,9 @@ class RM65FollowerConfig(RobotConfig):
 
     # 是否启用夹爪
     enable_gripper: bool = False
+    
+    # 是否控制夹爪（False=只读取位置，不发送指令）
+    enable_gripper_control: bool = False
 
     # 夹爪设备ID
     gripper_device_id: int = 9
@@ -69,6 +73,9 @@ class BiRM65FollowerConfig(RobotConfig):
 
     # 是否启用右臂夹爪
     enable_right_gripper: bool = False
+    
+    # 是否控制夹爪（False=只读取位置，不发送指令）
+    enable_gripper_control: bool = False
 
     # 夹爪设备ID
     gripper_device_id: int = 9

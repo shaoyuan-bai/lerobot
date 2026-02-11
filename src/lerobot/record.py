@@ -351,6 +351,12 @@ def record_loop(
 
         elif policy is None and isinstance(teleop, Teleoperator):
             act = teleop.get_action()
+            
+            # Special handling for bi_rm65_leader: use robot observation as action (drag teaching)
+            if teleop.name == 'bi_rm65_leader':
+                # Extract position data from observation as action
+                act = {key: value for key, value in obs.items() 
+                       if ".pos" in key and "image" not in key}
 
             # Applies a pipeline to the raw teleop action, default is IdentityProcessor
             act_processed_teleop = teleop_action_processor((act, obs))

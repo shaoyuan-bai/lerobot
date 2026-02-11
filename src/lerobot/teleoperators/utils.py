@@ -72,6 +72,9 @@ def make_teleoperator_from_config(teleop_config: "TeleoperatorConfig") -> "Teleo
     elif teleop_type == "bi_rm65_leader":
         from lerobot.teleoperators.bi_rm65_leader import BiRM65Leader
         return BiRM65Leader(teleop_config)
+    elif teleop_type == "rm65_leader":
+        from lerobot.teleoperators.bi_rm65_leader import RM65Leader
+        return RM65Leader(teleop_config)
     elif teleop_type == "homunculus":
         from lerobot.teleoperators.homunculus import Homunculus
         return Homunculus(teleop_config)
@@ -91,6 +94,6 @@ def make_teleoperator_from_config(teleop_config: "TeleoperatorConfig") -> "Teleo
         raise ValueError(
             f"Unknown teleoperator type '{teleop_type}'. Available types: "
             "gamepad, keyboard, phone, koch_leader, so100_leader, so101_leader, "
-            "bi_so100_leader, bi_so101_leader, bi_rm65_leader, homunculus, "
+            "bi_so100_leader, bi_so101_leader, rm65_leader, bi_rm65_leader, homunculus, "
             "reachy2_teleoperator, stretch3_gamepad, widowx, xlebi_so101_leader"
         )

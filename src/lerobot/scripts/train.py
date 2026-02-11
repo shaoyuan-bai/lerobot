@@ -186,6 +186,12 @@ def train(cfg: TrainPipelineConfig):
 
     if cfg.policy.pretrained_path is not None:
         processor_kwargs["preprocessor_overrides"] = {"device_processor": {"device": device.type}}
+        # IMPORTANT: When fine-tuning from pretrained model, override normalization stats with current dataset
+        # This ensures RM65 uses RM65 stats, SO101 uses SO101 stats, etc.
+        processor_kwargs["preprocessor_overrides"]["normalizer_processor"] = {"stats": dataset.meta.stats}
+        processor_kwargs["postprocessor_overrides"] = {
+            "unnormalizer_processor": {"stats": dataset.meta.stats}
+        }
 
     preprocessor, postprocessor = make_pre_post_processors(
         policy_cfg=cfg.policy, pretrained_path=cfg.policy.pretrained_path, **processor_kwargs

@@ -15,11 +15,47 @@
 # limitations under the License.
 """Utility functions for robot instantiation."""
 
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from lerobot.robots.config import RobotConfig
     from lerobot.robots.robot import Robot
+
+logger = logging.getLogger(__name__)
+
+
+def ensure_safe_goal_position(
+    goal_present_pos: dict[str, tuple[float, float]],
+    max_relative_target: float,
+) -> dict[str, float]:
+    """
+    Ensures that goal positions are within a safe distance from present positions.
+    
+    Caps the magnitude of the relative action target by `max_relative_target` to avoid that
+    the robot moves too fast which can damage the motors or the robot itself.
+    
+    Args:
+        goal_present_pos: Dictionary mapping motor names to (goal_position, present_position) tuples.
+        max_relative_target: Maximum allowed relative movement per motor.
+        
+    Returns:
+        Dictionary mapping motor names to safe goal positions.
+    """
+    safe_goal_pos = {}
+    for motor_name, (goal_pos, present_pos) in goal_present_pos.items():
+        delta_pos = goal_pos - present_pos
+        if abs(delta_pos) > max_relative_target:
+            safe_delta_pos = max_relative_target if delta_pos > 0 else -max_relative_target
+            safe_goal_pos[motor_name] = present_pos + safe_delta_pos
+            logger.warning(
+                f"Motor '{motor_name}': goal position {goal_pos:.2f} is too far from present "
+                f"position {present_pos:.2f}. Capping to {safe_goal_pos[motor_name]:.2f} "
+                f"(max_relative_target={max_relative_target})"
+            )
+        else:
+            safe_goal_pos[motor_name] = goal_pos
+    return safe_goal_pos
 
 
 def make_robot_from_config(robot_config: "RobotConfig") -> "Robot":
@@ -32,7 +68,7 @@ def make_robot_from_config(robot_config: "RobotConfig") -> "Robot":
     Returns:
         An instantiated Robot object.
     """
-    robot_type = robot_config.robot_type
+    robot_type = robot_config.type
     
     if robot_type == "so100_follower":
         from lerobot.robots.so100_follower import SO100Follower
@@ -49,6 +85,9 @@ def make_robot_from_config(robot_config: "RobotConfig") -> "Robot":
     elif robot_type == "bi_rm65_follower":
         from lerobot.robots.bi_rm65_follower import BiRM65Follower
         return BiRM65Follower(robot_config)
+    elif robot_type == "rm65_follower":
+        from lerobot.robots.bi_rm65_follower import RM65Follower
+        return RM65Follower(robot_config)
     elif robot_type == "koch_follower":
         from lerobot.robots.koch_follower import KochFollower
         return KochFollower(robot_config)
@@ -74,6 +113,6 @@ def make_robot_from_config(robot_config: "RobotConfig") -> "Robot":
         raise ValueError(
             f"Unknown robot type '{robot_type}'. Available types: "
             "so100_follower, so101_follower, bi_so100_follower, bi_so101_follower, "
-            "bi_rm65_follower, koch_follower, lekiwi, hope_jr, reachy2, stretch3, "
+            "rm65_follower, bi_rm65_follower, koch_follower, lekiwi, hope_jr, reachy2, stretch3, "
             "viperx, omni_base"
         )

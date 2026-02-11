@@ -66,7 +66,7 @@ class RM65Follower(Robot):
         # 夹爪位置缓存（用于降低读取频率）
         self._gripper_pos_cache: Optional[float] = None
         self._gripper_read_counter: int = 0
-        self._gripper_read_interval: int = 3  # 每3帧读取一次夹爪
+        self._gripper_read_interval: int = 10  # 每10帧读取一次夹爪（降低网络负载）
         
         # 初始化夹爪（如果启用）
         self.gripper: EPGGripperClient | None = None
@@ -157,10 +157,21 @@ class RM65Follower(Robot):
         pass
 
     def configure(self) -> None:
-        """配置机械臂为真实模式"""
+        """配置机械臂为真实模式，并初始化夹爪为可手动模式"""
         ret = self.arm.rm_set_arm_run_mode(1)  # 1: 真实模式, 0: 仿真模式
         if ret != 0:
             logger.warning(f"Failed to set arm run mode to real mode: error code {ret}")
+        
+        # 如果启用夹爪，将夹爪设置为半开状态（便于手动掰动）
+        if self.gripper is not None:
+            try:
+                logger.info("Initializing gripper to semi-open position for manual teaching...")
+                # 松开到 50% 位置（中间位置，方便手动调节）
+                self.gripper.set_position(50.0, blocking=False)
+                time.sleep(0.5)  # 等待夹爪移动
+                logger.info("Gripper initialized to 50% position. You can now manually adjust it.")
+            except Exception as e:
+                logger.warning(f"Failed to initialize gripper position: {e}")
 
     def get_observation(self) -> dict[str, Any]:
         if not self.is_connected:
@@ -170,10 +181,18 @@ class RM65Follower(Robot):
 
         # 获取当前关节角度 (度)
         # 返回格式: (状态码, [joint1, joint2, joint3, joint4, joint5, joint6])
-        ret, joint_angles = self.arm.rm_get_current_arm_state()
-
-        if ret != 0:
-            raise RuntimeError(f"Failed to get joint state from RM65: error code {ret}")
+        max_retries = 3
+        for attempt in range(max_retries):
+            ret, joint_angles = self.arm.rm_get_current_arm_state()
+            
+            if ret == 0:
+                break  # 成功
+            
+            if attempt < max_retries - 1:
+                logger.warning(f"{self.config.id} get_observation failed (attempt {attempt+1}/{max_retries}), error code {ret}, retrying...")
+                time.sleep(0.05)  # 等待50ms后重试
+            else:
+                raise RuntimeError(f"Failed to get joint state from RM65 after {max_retries} attempts: error code {ret}")
 
         # 提取关节角度列表 (假设返回的是包含关节数据的字典或列表)
         if isinstance(joint_angles, dict) and "joint" in joint_angles:
@@ -206,14 +225,16 @@ class RM65Follower(Robot):
                     obs_dict["gripper.pos"] = self._gripper_pos_cache
                     logger.debug(f"Gripper position read (fresh): {gripper_pos_raw} -> {gripper_pos:.1f}")
                 else:
-                    # 读取失败，使用缓存或默认值
+                    # 读取失败，使用上一帧缓存值（不使用默认值）
                     if self._gripper_pos_cache is not None:
                         obs_dict["gripper.pos"] = self._gripper_pos_cache
-                        logger.debug("Gripper read failed, using cached value")
+                        logger.debug("Gripper read failed, using cached value from previous frame")
                     else:
-                        obs_dict["gripper.pos"] = 50.0
-                        self._gripper_pos_cache = 50.0
-                        logger.warning("Gripper position read failed, using fallback value 50.0")
+                        # 首帧读取失败，抛出异常（不允许默认值）
+                        raise RuntimeError(
+                            "Failed to read gripper position on first frame. "
+                            "Please ensure gripper is properly connected and initialized."
+                        )
             else:
                 # 使用缓存值
                 obs_dict["gripper.pos"] = self._gripper_pos_cache
@@ -236,6 +257,20 @@ class RM65Follower(Robot):
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         if not self.is_connected:
             raise DeviceNotConnectedError(f"{self} is not connected.")
+        
+        # [GRIPDBG] 调试日志：单臂系统入口
+        logger.warning(
+            f"[GRIPDBG] RM65Follower.send_action enter: "
+            f"enable_gripper={getattr(self.config, 'enable_gripper', None)} "
+            f"enable_gripper_control={getattr(self.config, 'enable_gripper_control', None)} "
+            f"has_gripper={self.gripper is not None} "
+            f"keys_has_gripper_pos={'gripper.pos' in action} "
+            f"action_gripper_pos={action.get('gripper.pos', None)}"
+        )
+        
+        # [GRIPDBG] 打印 action 的所有键
+        logger.warning(f"[GRIPDBG] action keys: {list(action.keys())}")
+        logger.warning(f"[GRIPDBG] action content: {action}")
 
         # 提取目标关节角度 (度)
         goal_angles = [action[f"{joint}.pos"] for joint in self.joint_names]
@@ -257,14 +292,19 @@ class RM65Follower(Robot):
         if ret != 0:
             logger.warning(f"Failed to send action to RM65: error code {ret}")
         
-        # 控制夹爪（如果启用）
-        if self.gripper is not None and "gripper.pos" in action:
+        # 控制夹爪（如果启用且允许控制）
+        if self.gripper is not None and self.config.enable_gripper_control and "gripper.pos" in action:
             gripper_pos_normalized = action["gripper.pos"]  # 0-100
             # 反归一化: 0-100 -> 0-255
             gripper_pos_raw = int((gripper_pos_normalized / 100.0) * 255.0)
             gripper_pos_raw = max(0, min(255, gripper_pos_raw))  # 限制范围
             
-            success = self.gripper.set_position(gripper_pos_raw)
+            # [GRIPDBG] 调用夹爪前
+            logger.warning(f"[GRIPDBG] about to call gripper.set_position({gripper_pos_normalized})")
+            success = self.gripper.set_position(gripper_pos_normalized, blocking=False)
+            # [GRIPDBG] 调用夹爪后
+            logger.warning(f"[GRIPDBG] gripper.set_position returned={success}")
+            
             if not success:
                 logger.warning("Failed to set gripper position")
 

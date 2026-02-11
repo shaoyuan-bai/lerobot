@@ -17,3 +17,6 @@
 from .config import TeleoperatorConfig
 from .teleoperator import Teleoperator
 from .utils import TeleopEvents, make_teleoperator_from_config
+
+# Import all teleoperator configs to register them
+from . import bi_rm65_leader  # noqa: F401

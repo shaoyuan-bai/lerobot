@@ -62,6 +62,7 @@ class BiRM65Follower(Robot):
             port=config.port,
             move_speed=config.move_speed,
             enable_gripper=config.enable_right_gripper,  # 右臂夹爪配置
+            enable_gripper_control=config.enable_gripper_control,  # 透传夹爪控制开关
             gripper_device_id=config.gripper_device_id,
             gripper_force=config.gripper_force,
             gripper_speed=config.gripper_speed,
@@ -168,6 +169,15 @@ class BiRM65Follower(Robot):
 
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         """发送动作到两个机械臂"""
+        
+        # [GRIPDBG] 调试日志：双臂系统入口
+        logger.warning(
+            f"[GRIPDBG] BiRM65Follower.send_action enter: "
+            f"has_right_arm_gripper={self.right_arm.gripper is not None} "
+            f"keys_has_right_gripper_pos={'right_gripper.pos' in action} "
+            f"action_right_gripper_pos={action.get('right_gripper.pos', None)}"
+        )
+        
         # 分离左右臂动作
         left_action = {
             key.removeprefix("left_"): value for key, value in action.items() if key.startswith("left_")

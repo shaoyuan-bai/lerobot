@@ -41,14 +41,17 @@ class RM65Leader(Teleoperator):
         self.config = config
         self.handle = None
         self.arm = None
+        self.gripper = None  # 夹爪实例（用于读取位置）
         
         # 关节名称 (RM65 有6个关节)
         self.joint_names = [f"joint_{i}" for i in range(1, 7)]
 
     @property
     def action_features(self) -> dict[str, type]:
-        """返回动作特征 (6个关节角度)"""
-        return {f"{joint}.pos": float for joint in self.joint_names}
+        """返回动作特征 (6个关节角度 + 夹爪位置)"""
+        features = {f"{joint}.pos": float for joint in self.joint_names}
+        features["gripper.pos"] = float  # 添加夹爪位置
+        return features
 
     @property
     def feedback_features(self) -> dict[str, type]:
@@ -98,6 +101,22 @@ class RM65Leader(Teleoperator):
         
         # 配置拖动示教
         self.configure()
+        
+        # 初始化夹爪（用于读取位置）
+        try:
+            from lerobot.robots.bi_rm65_follower.epg_gripper import EPGGripper
+            self.gripper = EPGGripper(
+                ip=self.config.arm_ip,
+                port=self.config.port,
+                device_id=9,  # 默认设备 ID
+                force=60,
+                speed=255
+            )
+            # 只初始化，不连接（使用临时连接模式）
+            logger.info("夹爪初始化成功，可以读取位置")
+        except Exception as e:
+            logger.warning(f"夹爪初始化失败: {e}, 将返回默认位置")
+            self.gripper = None
         
         logger.info(f"{self} connected at {self.config.arm_ip}:{self.config.port}")
         logger.info(f"拖动示教已启动,灵敏度: {self.config.drag_sensitivity}")
@@ -165,25 +184,42 @@ class RM65Leader(Teleoperator):
         
         # 读取当前关节角度
         # rm_get_joint_degree 返回 (ret_code, dict) 或 dict
-        joint_status = self.arm.rm_get_joint_degree()
+        try:
+            joint_status = self.arm.rm_get_joint_degree()
+            logger.warning(f"[TELEOP_DBG] raw joint_status type={type(joint_status)}, value={joint_status}")
+        except Exception as e:
+            logger.error(f"[TELEOP_DBG] rm_get_joint_degree failed: {e}")
+            return {f"{joint}.pos": 0.0 for joint in self.joint_names}
         
         # 处理返回值
         if isinstance(joint_status, tuple):
             ret_code, data = joint_status
-            if ret_code == 0 and isinstance(data, dict) and "joint" in data:
-                joint_angles = data["joint"]
-            elif isinstance(data, dict) and "joint" in data:
-                # 即使有错误码,也尝试使用返回的数据
+            logger.warning(f"[TELEOP_DBG] tuple format: ret_code={ret_code}, data={data}")
+            
+            # RM65 SDK 返回 (ret_code, list) 而不是 (ret_code, dict)
+            if ret_code == 0 and isinstance(data, list) and len(data) >= 6:
+                joint_angles = data
+            elif isinstance(data, list) and len(data) >= 6:
                 logger.warning(f"Error code {ret_code} when reading joints, using returned data anyway")
+                joint_angles = data
+            elif isinstance(data, dict) and "joint" in data:
+                # 旧版本 SDK 可能返回 dict 格式
                 joint_angles = data["joint"]
             else:
                 logger.warning(f"Invalid joint status: {joint_status}")
                 return {f"{joint}.pos": 0.0 for joint in self.joint_names}
+        elif isinstance(joint_status, list) and len(joint_status) >= 6:
+            # 直接返回 list
+            logger.warning(f"[TELEOP_DBG] direct list format")
+            joint_angles = joint_status
         elif isinstance(joint_status, dict) and "joint" in joint_status:
+            logger.warning(f"[TELEOP_DBG] dict format with 'joint' key")
             joint_angles = joint_status["joint"]
         else:
             logger.warning(f"Unexpected joint status format: {joint_status}")
             return {f"{joint}.pos": 0.0 for joint in self.joint_names}
+        
+        logger.warning(f"[TELEOP_DBG] extracted joint_angles={joint_angles}, len={len(joint_angles)}")
         
         # 检查关节数量
         if len(joint_angles) < 6:
@@ -195,6 +231,21 @@ class RM65Leader(Teleoperator):
             f"{joint}.pos": float(joint_angles[i])
             for i, joint in enumerate(self.joint_names)
         }
+        
+        # 读取夹爪位置
+        if self.gripper is not None:
+            try:
+                gripper_pos = self.gripper.get_position()
+                action["gripper.pos"] = gripper_pos
+                logger.debug(f"[TELEOP_DBG] gripper position={gripper_pos}")
+            except Exception as e:
+                logger.warning(f"Failed to read gripper position: {e}, using default 50.0")
+                action["gripper.pos"] = 50.0
+        else:
+            # 如果没有夹爪，返回中间位置
+            action["gripper.pos"] = 50.0
+        
+        logger.warning(f"[TELEOP_DBG] final action={action}")
         
         dt_ms = (time.perf_counter() - start) * 1e3
         logger.debug(f"{self} read action: {dt_ms:.1f}ms")
